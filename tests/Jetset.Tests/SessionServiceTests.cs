@@ -191,6 +191,35 @@ public class SessionServiceTests
         Assert.Equal(SessionState.Running, unfinished.State);
         Assert.NotNull(unfinished.LastHeartbeatAt);
     }
+
+    [Fact]
+    public void GivenCompletedSession_WhenDeleted_ThenRemovedFromStore()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
+        var (service, store, setNow) = CreateHarness(start);
+
+        var session = service.Start("Ship feature", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(25));
+        service.Finish();
+
+        service.DeleteSession(session.Id);
+
+        Assert.Empty(store.GetSessionsForLocalDay(start));
+        Assert.Empty(store.GetIntervals(session.Id));
+    }
+
+    [Fact]
+    public void GivenActiveSession_WhenDeleted_ThenRejectedAndSessionRemains()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
+        var (service, store, _) = CreateHarness(start);
+
+        var session = service.Start("Still working", TimerMode.Stopwatch, null);
+
+        Assert.Throws<InvalidOperationException>(() => service.DeleteSession(session.Id));
+        Assert.Equal(session.Id, store.GetSessionsForLocalDay(start).Single().Id);
+        Assert.NotNull(service.ActiveSession);
+    }
 }
 
 public class SessionCalculationsTests

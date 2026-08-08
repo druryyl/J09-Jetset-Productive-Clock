@@ -1,7 +1,12 @@
 using System.Collections.ObjectModel;
+using System.Globalization;
 using Jetset.App.Helpers;
 using Jetset.App.Models;
 using Jetset.App.Services;
+using WpfMessageBox = System.Windows.MessageBox;
+using WpfMessageBoxButton = System.Windows.MessageBoxButton;
+using WpfMessageBoxImage = System.Windows.MessageBoxImage;
+using WpfMessageBoxResult = System.Windows.MessageBoxResult;
 
 namespace Jetset.App.ViewModels;
 
@@ -72,6 +77,7 @@ public sealed class HistoryViewModel : ObservableObject
 {
     private readonly AppServices _services;
     private HistoryItemViewModel? _selected;
+    private DateTime _selectedDate;
     private string _header = "TODAY";
     private string _editStart = string.Empty;
     private string _editFinish = string.Empty;
@@ -81,9 +87,14 @@ public sealed class HistoryViewModel : ObservableObject
     public HistoryViewModel(AppServices services)
     {
         _services = services;
+        _selectedDate = DateTime.Today;
         Items = new ObservableCollection<HistoryItemViewModel>();
         SaveEditCommand = new RelayCommand(SaveEdit, () => Selected is not null);
         RefreshCommand = new RelayCommand(Load);
+        PreviousDayCommand = new RelayCommand(() => SelectedDate = SelectedDate.AddDays(-1));
+        NextDayCommand = new RelayCommand(() => SelectedDate = SelectedDate.AddDays(1));
+        GoToTodayCommand = new RelayCommand(() => SelectedDate = DateTime.Today);
+        DeleteSessionCommand = new RelayCommand(DeleteSession, CanDeleteSelected);
         Load();
     }
 
@@ -91,6 +102,23 @@ public sealed class HistoryViewModel : ObservableObject
 
     public RelayCommand SaveEditCommand { get; }
     public RelayCommand RefreshCommand { get; }
+    public RelayCommand PreviousDayCommand { get; }
+    public RelayCommand NextDayCommand { get; }
+    public RelayCommand GoToTodayCommand { get; }
+    public RelayCommand DeleteSessionCommand { get; }
+
+    public DateTime SelectedDate
+    {
+        get => _selectedDate;
+        set
+        {
+            var date = value.Date;
+            if (SetProperty(ref _selectedDate, date))
+            {
+                Load();
+            }
+        }
+    }
 
     public string Header
     {
@@ -113,6 +141,7 @@ public sealed class HistoryViewModel : ObservableObject
                 }
 
                 SaveEditCommand.RaiseCanExecuteChanged();
+                DeleteSessionCommand.RaiseCanExecuteChanged();
             }
         }
     }
@@ -145,9 +174,11 @@ public sealed class HistoryViewModel : ObservableObject
 
     public void Load()
     {
+        var previouslySelectedId = Selected?.Session.Id;
         Items.Clear();
         var use24 = _services.Settings.Settings.Use24HourClock;
-        var sessions = _services.Sessions.GetTodaysSessions();
+        var day = new DateTimeOffset(SelectedDate);
+        var sessions = _services.Sessions.GetTodaysSessions(day);
         foreach (var session in sessions)
         {
             if (session.State == SessionState.Cancelled)
@@ -159,10 +190,62 @@ public sealed class HistoryViewModel : ObservableObject
             Items.Add(new HistoryItemViewModel(session, duration, use24));
         }
 
-        var total = _services.Sessions.GetTodaysTotal();
-        Header = $"TODAY — {DurationFormatter.FormatFriendly(total)}";
+        var total = _services.Sessions.GetTodaysTotal(day);
+        var dateLabel = SelectedDate.ToString("ddd, d MMM yyyy", CultureInfo.CurrentCulture).ToUpperInvariant();
+        Header = $"{dateLabel} — {DurationFormatter.FormatFriendly(total)}";
         OnPropertyChanged(nameof(HasItems));
-        Message = Items.Count == 0 ? "No sessions recorded today." : null;
+        Message = Items.Count == 0 ? "No sessions recorded on this day." : null;
+
+        Selected = previouslySelectedId is { } id
+            ? Items.FirstOrDefault(i => i.Session.Id == id)
+            : null;
+    }
+
+    private bool CanDeleteSelected()
+    {
+        if (Selected is null)
+        {
+            return false;
+        }
+
+        var state = Selected.Session.State;
+        if (state is SessionState.Running or SessionState.Paused)
+        {
+            return false;
+        }
+
+        return _services.Sessions.ActiveSession?.Id != Selected.Session.Id;
+    }
+
+    private void DeleteSession()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var result = WpfMessageBox.Show(
+            $"Delete session \"{Selected.TaskName}\"? This cannot be undone.",
+            "Delete session",
+            WpfMessageBoxButton.YesNo,
+            WpfMessageBoxImage.Warning);
+
+        if (result != WpfMessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            _services.Sessions.DeleteSession(Selected.Session.Id);
+            Load();
+            Message = "Session deleted.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
     }
 
     private void SaveEdit()

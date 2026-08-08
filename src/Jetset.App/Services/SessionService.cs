@@ -321,6 +321,17 @@ public sealed class SessionService
         RaiseChanged();
     }
 
+    public void DeleteSession(Guid sessionId)
+    {
+        if (ActiveSession?.Id == sessionId)
+        {
+            throw new InvalidOperationException("Cannot delete the active session. Finish or discard it first.");
+        }
+
+        _store.DeleteSession(sessionId);
+        RaiseChanged();
+    }
+
     public IReadOnlyList<WorkInterval> GetIntervals(Guid sessionId) => _store.GetIntervals(sessionId);
 
     private WorkSession RequireActive()

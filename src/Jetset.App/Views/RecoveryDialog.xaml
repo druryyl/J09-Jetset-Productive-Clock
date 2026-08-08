@@ -12,13 +12,13 @@
     <TextBlock Text="A work session was active when Jetset stopped."
                FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,12" />
     <TextBlock TextWrapping="Wrap" Margin="0,0,0,4">
-      <Run Text="Task: " /><Run Text="{Binding TaskSummary}" FontWeight="SemiBold" />
+      <Run Text="Task: " /><Run Text="{Binding TaskSummary, Mode=OneWay}" FontWeight="SemiBold" />
     </TextBlock>
     <TextBlock TextWrapping="Wrap" Margin="0,0,0,4">
-      <Run Text="Started: " /><Run Text="{Binding StartedSummary}" />
+      <Run Text="Started: " /><Run Text="{Binding StartedSummary, Mode=OneWay}" />
     </TextBlock>
     <TextBlock TextWrapping="Wrap" Margin="0,0,0,8">
-      <Run Text="Last known activity: " /><Run Text="{Binding LastKnownSummary}" />
+      <Run Text="Last known activity: " /><Run Text="{Binding LastKnownSummary, Mode=OneWay}" />
     </TextBlock>
     <TextBlock Text="{Binding LimitationText}" TextWrapping="Wrap"
                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,16" />

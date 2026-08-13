@@ -25,6 +25,8 @@ public sealed class AppServices
         Notifications = new NotificationService();
         Startup = new StartupService();
         Settings = new SettingsService(SettingsStore, Startup);
+        SystemIdle = new SystemIdleService();
+        IdleAutoPause = new IdleAutoPauseController(Sessions, SystemIdle, () => Settings.Settings);
         Tray = new TrayService(Notifications);
     }
 
@@ -36,5 +38,7 @@ public sealed class AppServices
     public NotificationService Notifications { get; }
     public StartupService Startup { get; }
     public SettingsService Settings { get; }
+    public ISystemIdleService SystemIdle { get; }
+    public IdleAutoPauseController IdleAutoPause { get; }
     public TrayService Tray { get; }
 }

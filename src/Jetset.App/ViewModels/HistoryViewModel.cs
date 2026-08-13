@@ -214,7 +214,7 @@ public sealed class HistoryViewModel : ObservableObject
             return false;
         }
 
-        return _services.Sessions.ActiveSession?.Id != Selected.Session.Id;
+        return true;
     }
 
     private void DeleteSession()

@@ -3,14 +3,17 @@ using System.Windows.Threading;
 using Jetset.App.Helpers;
 using Jetset.App.Models;
 using Jetset.App.Services;
+using Microsoft.Win32;
 
 namespace Jetset.App.ViewModels;
 
 public sealed class MainWindowViewModel : ObservableObject, IDisposable
 {
     private readonly AppServices _services;
+    private readonly IdleAutoPauseController _idleAutoPause;
     private readonly DispatcherTimer _uiTimer;
     private readonly DispatcherTimer _heartbeatTimer;
+    private readonly DispatcherTimer _idleTimer;
 
     private string _currentTime = string.Empty;
     private string _currentDate = string.Empty;
@@ -26,27 +29,41 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private bool _isOvertime;
     private bool _showStartPanel;
     private string? _validationMessage;
+    private int _inProgressCount;
+    private bool _hasWaitingSessions;
 
     public MainWindowViewModel(AppServices services)
     {
         _services = services;
+        _idleAutoPause = services.IdleAutoPause;
         Settings = services.Settings.Settings;
         StartSession = new StartSessionViewModel();
+        WaitingSessions = new ObservableCollection<InProgressSessionItem>();
 
-        StartWorkCommand = new RelayCommand(() => ShowStartPanel = true, () => UiState == UiSessionState.Idle);
+        StartWorkCommand = new RelayCommand(() =>
+        {
+            if (IsCompact)
+            {
+                IsCompact = false;
+                _services.Settings.Update(s => s.CompactMode = false);
+            }
+
+            ShowStartPanel = true;
+        }, () => !ShowStartPanel);
         CancelStartCommand = new RelayCommand(() =>
         {
             ShowStartPanel = false;
             StartSession.Reset();
             ValidationMessage = null;
         });
-        ConfirmStartCommand = new RelayCommand(ConfirmStart, () => UiState == UiSessionState.Idle);
+        ConfirmStartCommand = new RelayCommand(ConfirmStart);
         PauseCommand = new RelayCommand(Pause, () => UiState == UiSessionState.Running);
         ResumeCommand = new RelayCommand(Resume, () => UiState == UiSessionState.Paused);
         FinishCommand = new RelayCommand(Finish, () => UiState is UiSessionState.Running or UiSessionState.Paused);
         OpenHistoryCommand = new RelayCommand(() => OpenHistoryRequested?.Invoke(this, EventArgs.Empty));
         OpenSettingsCommand = new RelayCommand(() => OpenSettingsRequested?.Invoke(this, EventArgs.Empty));
         ToggleCompactCommand = new RelayCommand(ToggleCompact);
+        SwitchToSessionCommand = new RelayCommand(SwitchToSession);
 
         IsCompact = Settings.CompactMode;
         AlwaysOnTop = Settings.AlwaysOnTop;
@@ -59,7 +76,23 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         _heartbeatTimer.Tick += (_, _) => _services.Sessions.Heartbeat();
         _heartbeatTimer.Start();
 
+        _idleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _idleTimer.Tick += (_, _) => _idleAutoPause.Evaluate();
+        _idleTimer.Start();
+
         _services.Sessions.SessionChanged += (_, _) => RefreshFromSession();
+        _idleAutoPause.StateChanged += (_, _) =>
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher is null || dispatcher.CheckAccess())
+            {
+                RefreshFromSession();
+            }
+            else
+            {
+                dispatcher.Invoke(RefreshFromSession);
+            }
+        };
         _services.Settings.SettingsChanged += (_, _) =>
         {
             Settings = _services.Settings.Settings;
@@ -69,7 +102,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             OnPropertyChanged(nameof(Settings));
         };
 
-        Microsoft.Win32.SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionSwitch += OnSessionSwitch;
 
         RefreshFromSession();
         RefreshDisplay();
@@ -78,6 +112,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public AppSettings Settings { get; private set; }
 
     public StartSessionViewModel StartSession { get; }
+
+    public ObservableCollection<InProgressSessionItem> WaitingSessions { get; }
 
     public RelayCommand StartWorkCommand { get; }
     public RelayCommand CancelStartCommand { get; }
@@ -88,6 +124,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public RelayCommand OpenHistoryCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
     public RelayCommand ToggleCompactCommand { get; }
+    public RelayCommand SwitchToSessionCommand { get; }
 
     public event EventHandler? OpenHistoryRequested;
     public event EventHandler? OpenSettingsRequested;
@@ -190,7 +227,13 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public bool ShowStartPanel
     {
         get => _showStartPanel;
-        set => SetProperty(ref _showStartPanel, value);
+        set
+        {
+            if (SetProperty(ref _showStartPanel, value))
+            {
+                RaiseCommands();
+            }
+        }
     }
 
     public string? ValidationMessage
@@ -198,6 +241,26 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         get => _validationMessage;
         private set => SetProperty(ref _validationMessage, value);
     }
+
+    public int InProgressCount
+    {
+        get => _inProgressCount;
+        private set
+        {
+            if (SetProperty(ref _inProgressCount, value))
+            {
+                OnPropertyChanged(nameof(StartWorkButtonText));
+            }
+        }
+    }
+
+    public bool HasWaitingSessions
+    {
+        get => _hasWaitingSessions;
+        private set => SetProperty(ref _hasWaitingSessions, value);
+    }
+
+    public string StartWorkButtonText => InProgressCount > 0 ? "Start another" : "Start Work";
 
     public void CheckRecovery()
     {
@@ -217,18 +280,21 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public void ApplyRecoveryFinishLastKnown()
     {
         _services.Sessions.FinishAtLastKnownActivity();
+        _idleAutoPause.NotifySessionEnded();
         RefreshFromSession();
     }
 
     public void ApplyRecoveryDiscard()
     {
         _services.Sessions.Discard();
+        _idleAutoPause.NotifySessionEnded();
         RefreshFromSession();
     }
 
     public void CompleteFinish(string? note)
     {
         _services.Sessions.Finish(note);
+        _idleAutoPause.NotifySessionEnded();
         RefreshFromSession();
     }
 
@@ -243,6 +309,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
 
         try
         {
+            _idleAutoPause.NotifyManualResume();
             _services.Sessions.Start(taskName, mode, duration);
             ShowStartPanel = false;
             StartSession.Reset();
@@ -258,6 +325,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         try
         {
+            _idleAutoPause.NotifyManualPause();
             _services.Sessions.Pause();
             RefreshFromSession();
         }
@@ -271,7 +339,36 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         try
         {
+            _idleAutoPause.NotifyManualResume();
             _services.Sessions.Resume();
+            RefreshFromSession();
+        }
+        catch (Exception ex)
+        {
+            ValidationMessage = ex.Message;
+        }
+    }
+
+    private void SwitchToSession(object? parameter)
+    {
+        Guid sessionId;
+        if (parameter is Guid id)
+        {
+            sessionId = id;
+        }
+        else if (parameter is string text && Guid.TryParse(text, out var parsed))
+        {
+            sessionId = parsed;
+        }
+        else
+        {
+            return;
+        }
+
+        try
+        {
+            _idleAutoPause.NotifyManualResume();
+            _services.Sessions.SwitchTo(sessionId);
             RefreshFromSession();
         }
         catch (Exception ex)
@@ -294,8 +391,12 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     private void RefreshFromSession()
     {
         var session = _services.Sessions.ActiveSession;
+        var inProgress = _services.Sessions.GetInProgressSessions();
+        InProgressCount = inProgress.Count;
+
         if (session is null)
         {
+            _idleAutoPause.NotifySessionEnded();
             UiState = UiSessionState.Idle;
             TaskName = string.Empty;
             TimerDisplay = string.Empty;
@@ -308,12 +409,57 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
             UiState = session.State == SessionState.Paused ? UiSessionState.Paused : UiSessionState.Running;
             TaskName = session.TaskName;
             ModeText = session.Mode == TimerMode.Countdown ? "Countdown" : "Stopwatch";
-            StatusText = session.State == SessionState.Paused ? "Paused" : "Running";
+            StatusText = session.State == SessionState.Paused
+                ? (_idleAutoPause.PausedByIdle ? "Paused (idle)" : "Paused")
+                : "Running";
         }
 
+        SyncWaitingSessions(inProgress, session?.Id);
         TodayTotalText = $"Today: {DurationFormatter.FormatFriendly(_services.Sessions.GetTodaysTotal())}";
         RaiseCommands();
         RefreshDisplay();
+    }
+
+    private void SyncWaitingSessions(IReadOnlyList<WorkSession> inProgress, Guid? focusedId)
+    {
+        var waiting = inProgress.Where(s => s.Id != focusedId).ToList();
+        HasWaitingSessions = waiting.Count > 0;
+
+        for (var i = WaitingSessions.Count - 1; i >= 0; i--)
+        {
+            if (waiting.All(s => s.Id != WaitingSessions[i].SessionId))
+            {
+                WaitingSessions.RemoveAt(i);
+            }
+        }
+
+        foreach (var session in waiting)
+        {
+            var existing = WaitingSessions.FirstOrDefault(i => i.SessionId == session.Id);
+            if (existing is null)
+            {
+                WaitingSessions.Add(new InProgressSessionItem(session, SwitchToSessionCommand));
+            }
+        }
+
+        // Keep UI order stable: match store order excluding focused.
+        for (var i = 0; i < waiting.Count; i++)
+        {
+            var currentIndex = -1;
+            for (var j = 0; j < WaitingSessions.Count; j++)
+            {
+                if (WaitingSessions[j].SessionId == waiting[i].Id)
+                {
+                    currentIndex = j;
+                    break;
+                }
+            }
+
+            if (currentIndex >= 0 && currentIndex != i && i < WaitingSessions.Count)
+            {
+                WaitingSessions.Move(currentIndex, i);
+            }
+        }
     }
 
     private void RefreshDisplay()
@@ -327,6 +473,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         {
             CompactLine = string.Empty;
             TodayTotalText = $"Today: {DurationFormatter.FormatFriendly(_services.Sessions.GetTodaysTotal())}";
+            RefreshWaitingDurations(now);
             return;
         }
 
@@ -354,7 +501,19 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         }
 
         var glyph = session.State == SessionState.Paused ? "❚❚" : "▶";
-        CompactLine = $"{glyph} {TimerDisplay}  {TaskName}";
+        var countSuffix = InProgressCount > 1 ? $"  · {InProgressCount}" : string.Empty;
+        CompactLine = $"{glyph} {TimerDisplay}  {TaskName}{countSuffix}";
+        RefreshWaitingDurations(now);
+    }
+
+    private void RefreshWaitingDurations(DateTimeOffset now)
+    {
+        foreach (var item in WaitingSessions)
+        {
+            var duration = _services.Sessions.GetActiveDuration(item.SessionId, now);
+            item.DurationText = DurationFormatter.FormatFriendly(duration);
+            item.StatusText = "Waiting";
+        }
     }
 
     private void MaybeNotifyCountdownComplete(WorkSession session)
@@ -370,11 +529,54 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         StatusText = "Countdown complete — overtime";
     }
 
-    private void OnPowerModeChanged(object sender, Microsoft.Win32.PowerModeChangedEventArgs e)
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
     {
-        if (e.Mode == Microsoft.Win32.PowerModes.Resume)
+        void Handle()
         {
-            System.Windows.Application.Current?.Dispatcher.Invoke(RefreshDisplay);
+            if (e.Mode == PowerModes.Suspend)
+            {
+                _idleAutoPause.OnSessionLockedOrSuspended();
+            }
+            else if (e.Mode == PowerModes.Resume)
+            {
+                _idleAutoPause.OnSessionUnlockedOrResumed();
+                RefreshDisplay();
+            }
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            Handle();
+        }
+        else
+        {
+            dispatcher.Invoke(Handle);
+        }
+    }
+
+    private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        void Handle()
+        {
+            if (e.Reason == SessionSwitchReason.SessionLock)
+            {
+                _idleAutoPause.OnSessionLockedOrSuspended();
+            }
+            else if (e.Reason is SessionSwitchReason.SessionUnlock or SessionSwitchReason.SessionLogon)
+            {
+                _idleAutoPause.OnSessionUnlockedOrResumed();
+            }
+        }
+
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            Handle();
+        }
+        else
+        {
+            dispatcher.Invoke(Handle);
         }
     }
 
@@ -391,6 +593,8 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     {
         _uiTimer.Stop();
         _heartbeatTimer.Stop();
-        Microsoft.Win32.SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        _idleTimer.Stop();
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
     }
 }

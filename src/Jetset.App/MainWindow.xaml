@@ -4,7 +4,7 @@
         xmlns:helpers="clr-namespace:Jetset.App.Helpers"
         Title="Jetset"
         Width="360"
-        Height="440"
+        Height="480"
         MinWidth="280"
         MinHeight="160"
         WindowStartupLocation="Manual"
@@ -40,9 +40,9 @@
                   Margin="0,0,8,0" Visibility="{Binding IsPaused, Converter={StaticResource BoolToVis}}" />
           <Button Content="Finish" Command="{Binding FinishCommand}" Style="{DynamicResource SecondaryButton}" />
         </StackPanel>
-        <Button Content="Start Work" Command="{Binding StartWorkCommand}" Style="{DynamicResource PrimaryButton}"
+        <Button Content="{Binding StartWorkButtonText}" Command="{Binding StartWorkCommand}" Style="{DynamicResource PrimaryButton}"
                 HorizontalAlignment="Left" Margin="0,12,0,0"
-                Visibility="{Binding IsIdle, Converter={StaticResource BoolToVis}}" />
+                Visibility="{Binding ShowStartPanel, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
         <Button Content="Expand" Command="{Binding ToggleCompactCommand}" Style="{DynamicResource LinkButton}"
                 HorizontalAlignment="Left" Margin="0,12,0,0" />
       </StackPanel>
@@ -55,7 +55,7 @@
                      FontSize="48" FontWeight="SemiBold" />
           <TextBlock Text="{Binding CurrentDate}" FontSize="16"
                      Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,16" />
-          <Button Content="Start Work" Command="{Binding StartWorkCommand}" Style="{DynamicResource PrimaryButton}"
+          <Button Content="{Binding StartWorkButtonText}" Command="{Binding StartWorkCommand}" Style="{DynamicResource PrimaryButton}"
                   HorizontalAlignment="Left" FontSize="16"
                   Visibility="{Binding ShowStartPanel, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
         </StackPanel>
@@ -77,7 +77,45 @@
                     Margin="0,0,8,0" Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
             <Button Content="Resume" Command="{Binding ResumeCommand}" Style="{DynamicResource PrimaryButton}"
                     Margin="0,0,8,0" Visibility="{Binding IsPaused, Converter={StaticResource BoolToVis}}" />
-            <Button Content="Finish" Command="{Binding FinishCommand}" Style="{DynamicResource SecondaryButton}" />
+            <Button Content="Finish" Command="{Binding FinishCommand}" Style="{DynamicResource SecondaryButton}" Margin="0,0,8,0" />
+            <Button Content="{Binding StartWorkButtonText}" Command="{Binding StartWorkCommand}" Style="{DynamicResource LinkButton}"
+                    Visibility="{Binding ShowStartPanel, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
+          </StackPanel>
+
+          <!-- Waiting / parallel sessions -->
+          <StackPanel Margin="0,16,0,0"
+                      Visibility="{Binding HasWaitingSessions, Converter={StaticResource BoolToVis}}">
+            <TextBlock Text="Waiting" FontWeight="SemiBold" FontSize="13"
+                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
+            <ItemsControl ItemsSource="{Binding WaitingSessions}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Border Padding="10,8" Margin="0,0,0,6"
+                          Background="{DynamicResource PanelBackgroundBrush}"
+                          BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                        <TextBlock Text="{Binding TaskName}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Margin="0,2,0,0" Foreground="{DynamicResource TextSecondaryBrush}">
+                          <Run Text="{Binding DurationText, Mode=OneWay}" />
+                          <Run Text=" · " />
+                          <Run Text="{Binding StatusText, Mode=OneWay}" />
+                        </TextBlock>
+                      </StackPanel>
+                      <Button Grid.Column="1" Content="Switch"
+                              Command="{Binding SwitchCommand}"
+                              CommandParameter="{Binding SessionId}"
+                              Style="{DynamicResource SecondaryButton}"
+                              VerticalAlignment="Center" />
+                    </Grid>
+                  </Border>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
           </StackPanel>
         </StackPanel>
 

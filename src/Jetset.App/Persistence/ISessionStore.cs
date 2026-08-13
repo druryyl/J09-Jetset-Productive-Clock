@@ -6,6 +6,8 @@ public interface ISessionStore
 {
     WorkSession? GetActiveSession();
 
+    IReadOnlyList<WorkSession> GetInProgressSessions();
+
     IReadOnlyList<WorkInterval> GetIntervals(Guid sessionId);
 
     void SaveNewSession(WorkSession session, WorkInterval firstInterval);

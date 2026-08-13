@@ -16,6 +16,12 @@ public sealed class AppSettings
 
     public bool UseDarkTheme { get; set; }
 
+    public bool AutoPauseWhenIdle { get; set; }
+
+    public int IdleTimeoutMinutes { get; set; } = 5;
+
+    public bool AutoResumeAfterIdle { get; set; } = true;
+
     public double WindowLeft { get; set; } = double.NaN;
 
     public double WindowTop { get; set; } = double.NaN;

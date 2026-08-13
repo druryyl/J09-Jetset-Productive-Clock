@@ -92,15 +92,93 @@ public class SessionServiceTests
     }
 
     [Fact]
-    public void GivenActiveSession_WhenStartingAnother_ThenRejected()
+    public void GivenRunningSession_WhenStartingAnother_ThenFirstIsPausedAndSecondIsActive()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, _, _) = CreateHarness(start);
+        var (service, store, setNow) = CreateHarness(start);
 
-        service.Start("First", TimerMode.Stopwatch, null);
+        var first = service.Start("First", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(10));
+        var second = service.Start("Second", TimerMode.Stopwatch, null);
 
-        Assert.Throws<InvalidOperationException>(() =>
-            service.Start("Second", TimerMode.Stopwatch, null));
+        var inProgress = service.GetInProgressSessions();
+        Assert.Equal(2, inProgress.Count);
+        Assert.Equal(second.Id, service.ActiveSession!.Id);
+        Assert.Equal(SessionState.Running, service.ActiveSession.State);
+        Assert.Equal(SessionState.Paused, store.GetInProgressSessions().Single(s => s.Id == first.Id).State);
+        Assert.Null(store.GetOpenInterval(first.Id));
+        Assert.NotNull(store.GetOpenInterval(second.Id));
+        Assert.Equal(TimeSpan.FromMinutes(10), store.GetActiveDuration(first.Id, start.AddMinutes(10)));
+    }
+
+    [Fact]
+    public void GivenTwoInProgress_WhenSwitchToWaiting_ThenTimerMovesAndGapsExcluded()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
+        var (service, store, setNow) = CreateHarness(start);
+
+        var first = service.Start("Task A", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(10));
+        var second = service.Start("Task B", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(25));
+
+        service.SwitchTo(first.Id);
+        setNow(start.AddMinutes(40));
+
+        Assert.Equal(first.Id, service.ActiveSession!.Id);
+        Assert.Equal(SessionState.Running, service.ActiveSession.State);
+        Assert.Equal(SessionState.Paused, store.GetInProgressSessions().Single(s => s.Id == second.Id).State);
+        Assert.Equal(TimeSpan.FromMinutes(25), store.GetActiveDuration(first.Id, start.AddMinutes(40)));
+        Assert.Equal(TimeSpan.FromMinutes(15), store.GetActiveDuration(second.Id, start.AddMinutes(40)));
+    }
+
+    [Fact]
+    public void GivenTwoInProgress_WhenFinishActive_ThenWaitingBecomesFocusedPaused()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
+        var (service, _, setNow) = CreateHarness(start);
+
+        var first = service.Start("Task A", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(5));
+        service.Start("Task B", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(15));
+        service.Finish();
+
+        Assert.Equal(first.Id, service.ActiveSession!.Id);
+        Assert.Equal(SessionState.Paused, service.ActiveSession.State);
+        Assert.Equal("Task A", service.ActiveSession.TaskName);
+        Assert.Single(service.GetInProgressSessions());
+    }
+
+    [Fact]
+    public void GivenPausedAndRunning_WhenGetActiveSession_ThenPrefersRunning()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
+        var (service, store, setNow) = CreateHarness(start);
+
+        var first = service.Start("Older", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(5));
+        service.Pause();
+        setNow(start.AddMinutes(10));
+        var second = service.Start("Newer running", TimerMode.Stopwatch, null);
+
+        Assert.Equal(second.Id, store.GetActiveSession()!.Id);
+        Assert.Equal(SessionState.Running, store.GetActiveSession()!.State);
+        Assert.Equal(first.Id, store.GetInProgressSessions().Last().Id);
+    }
+
+    [Fact]
+    public void GivenWaitingSession_WhenDeleted_ThenRejected()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
+        var (service, _, setNow) = CreateHarness(start);
+
+        var first = service.Start("Waiting", TimerMode.Stopwatch, null);
+        setNow(start.AddMinutes(5));
+        service.Start("Active", TimerMode.Stopwatch, null);
+
+        Assert.Throws<InvalidOperationException>(() => service.DeleteSession(first.Id));
+        Assert.Equal(2, service.GetInProgressSessions().Count);
     }
 
     [Fact]

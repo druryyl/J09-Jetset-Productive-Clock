@@ -15,6 +15,11 @@ public sealed class SessionStore : ISessionStore
 
     public WorkSession? GetActiveSession()
     {
+        return GetInProgressSessions().FirstOrDefault();
+    }
+
+    public IReadOnlyList<WorkSession> GetInProgressSessions()
+    {
         using var connection = _factory.Create();
         using var command = connection.CreateCommand();
         command.CommandText =
@@ -24,13 +29,21 @@ public sealed class SessionStore : ISessionStore
                    CountdownCompletedNotified
             FROM WorkSession
             WHERE State IN (@running, @paused)
-            LIMIT 1;
+            ORDER BY CASE State WHEN @running THEN 0 ELSE 1 END,
+                     LastHeartbeatAt DESC,
+                     StartedAt DESC;
             """;
         command.Parameters.AddWithValue("@running", (int)SessionState.Running);
         command.Parameters.AddWithValue("@paused", (int)SessionState.Paused);
 
+        var results = new List<WorkSession>();
         using var reader = command.ExecuteReader();
-        return reader.Read() ? ReadSession(reader) : null;
+        while (reader.Read())
+        {
+            results.Add(ReadSession(reader));
+        }
+
+        return results;
     }
 
     public IReadOnlyList<WorkInterval> GetIntervals(Guid sessionId)
@@ -61,19 +74,19 @@ public sealed class SessionStore : ISessionStore
         using var connection = _factory.Create();
         using var tx = connection.BeginTransaction();
 
-        using (var check = connection.CreateCommand())
+        if (session.State == SessionState.Running)
         {
+            using var check = connection.CreateCommand();
             check.Transaction = tx;
             check.CommandText =
                 """
-                SELECT COUNT(1) FROM WorkSession WHERE State IN (@running, @paused);
+                SELECT COUNT(1) FROM WorkSession WHERE State = @running;
                 """;
             check.Parameters.AddWithValue("@running", (int)SessionState.Running);
-            check.Parameters.AddWithValue("@paused", (int)SessionState.Paused);
             var count = Convert.ToInt64(check.ExecuteScalar());
             if (count > 0)
             {
-                throw new InvalidOperationException("Only one active work session is allowed.");
+                throw new InvalidOperationException("Only one running work session is allowed.");
             }
         }
 

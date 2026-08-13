@@ -43,6 +43,9 @@ public sealed class SettingsStore
         Upsert(connection, tx, "SoundOnCountdownComplete", settings.SoundOnCountdownComplete.ToString());
         Upsert(connection, tx, "StartWithWindows", settings.StartWithWindows.ToString());
         Upsert(connection, tx, "UseDarkTheme", settings.UseDarkTheme.ToString());
+        Upsert(connection, tx, "AutoPauseWhenIdle", settings.AutoPauseWhenIdle.ToString());
+        Upsert(connection, tx, "IdleTimeoutMinutes", ClampIdleTimeout(settings.IdleTimeoutMinutes).ToString(CultureInfo.InvariantCulture));
+        Upsert(connection, tx, "AutoResumeAfterIdle", settings.AutoResumeAfterIdle.ToString());
         Upsert(connection, tx, "WindowLeft", settings.WindowLeft.ToString(CultureInfo.InvariantCulture));
         Upsert(connection, tx, "WindowTop", settings.WindowTop.ToString(CultureInfo.InvariantCulture));
         Upsert(connection, tx, "WindowWidth", settings.WindowWidth.ToString(CultureInfo.InvariantCulture));
@@ -90,6 +93,15 @@ public sealed class SettingsStore
             case "UseDarkTheme":
                 settings.UseDarkTheme = bool.Parse(value);
                 break;
+            case "AutoPauseWhenIdle":
+                settings.AutoPauseWhenIdle = bool.Parse(value);
+                break;
+            case "IdleTimeoutMinutes":
+                settings.IdleTimeoutMinutes = ClampIdleTimeout(int.Parse(value, CultureInfo.InvariantCulture));
+                break;
+            case "AutoResumeAfterIdle":
+                settings.AutoResumeAfterIdle = bool.Parse(value);
+                break;
             case "WindowLeft":
                 settings.WindowLeft = double.Parse(value, CultureInfo.InvariantCulture);
                 break;
@@ -104,4 +116,6 @@ public sealed class SettingsStore
                 break;
         }
     }
+
+    private static int ClampIdleTimeout(int minutes) => Math.Clamp(minutes, 1, 60);
 }

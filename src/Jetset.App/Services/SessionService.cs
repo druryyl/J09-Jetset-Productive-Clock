@@ -21,6 +21,8 @@ public sealed class SessionService
 
     public event EventHandler? SessionChanged;
 
+    public IReadOnlyList<WorkSession> GetInProgressSessions() => _store.GetInProgressSessions();
+
     public WorkSession Start(string taskName, TimerMode mode, TimeSpan? countdownDuration)
     {
         var name = taskName.Trim();
@@ -29,17 +31,18 @@ public sealed class SessionService
             throw new ArgumentException("Task name is required.", nameof(taskName));
         }
 
-        if (_store.GetActiveSession() is not null)
-        {
-            throw new InvalidOperationException("Only one active work session is allowed.");
-        }
-
         if (mode == TimerMode.Countdown)
         {
             if (countdownDuration is null || countdownDuration <= TimeSpan.Zero)
             {
                 throw new ArgumentException("Countdown duration must be greater than zero.", nameof(countdownDuration));
             }
+        }
+
+        var running = GetRunningSession();
+        if (running is not null)
+        {
+            PauseSession(running);
         }
 
         var now = _clock();
@@ -70,73 +73,39 @@ public sealed class SessionService
 
     public void Pause()
     {
-        var session = RequireActive();
-        if (session.State == SessionState.Paused)
-        {
-            throw new InvalidOperationException("Session is already paused.");
-        }
-
-        if (session.State != SessionState.Running)
-        {
-            throw new InvalidOperationException("Only a running session can be paused.");
-        }
-
-        var now = _clock();
-        var open = _store.GetOpenInterval(session.Id);
-        if (open is not null)
-        {
-            _store.CloseInterval(open.Id, now);
-        }
-
-        if (session.Mode == TimerMode.Countdown)
-        {
-            var remaining = SessionCalculations.GetCountdownRemaining(session, now);
-            session.CountdownRemaining = remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
-            session.CountdownEndsAt = null;
-        }
-
-        session.State = SessionState.Paused;
-        session.LastHeartbeatAt = now;
-        _store.UpdateSession(session);
+        PauseSession(RequireActive());
         RaiseChanged();
     }
 
     public void Resume()
     {
-        var session = RequireActive();
-        if (session.State == SessionState.Running)
+        ResumeSession(RequireActive());
+        RaiseChanged();
+    }
+
+    public void SwitchTo(Guid sessionId)
+    {
+        var target = GetInProgressSessions().FirstOrDefault(s => s.Id == sessionId)
+            ?? throw new InvalidOperationException("Session is not in progress.");
+
+        var running = GetRunningSession();
+        if (running is not null && running.Id == sessionId)
         {
-            throw new InvalidOperationException("Session is already running.");
+            return;
         }
 
-        if (session.State != SessionState.Paused)
+        if (running is not null)
         {
-            throw new InvalidOperationException("Only a paused session can be resumed.");
+            PauseSession(running);
         }
 
-        if (_store.GetOpenInterval(session.Id) is not null)
+        // Reload target after possible pause of another session.
+        target = _store.GetInProgressSessions().First(s => s.Id == sessionId);
+        if (target.State == SessionState.Paused)
         {
-            throw new InvalidOperationException("Cannot resume while an open interval already exists.");
+            ResumeSession(target);
         }
 
-        var now = _clock();
-        if (session.Mode == TimerMode.Countdown)
-        {
-            var remaining = session.CountdownRemaining ?? TimeSpan.Zero;
-            session.CountdownEndsAt = now.Add(remaining);
-        }
-
-        var interval = new WorkInterval
-        {
-            Id = Guid.NewGuid(),
-            WorkSessionId = session.Id,
-            StartedAt = now
-        };
-
-        session.State = SessionState.Running;
-        session.LastHeartbeatAt = now;
-        _store.InsertInterval(interval);
-        _store.UpdateSession(session);
         RaiseChanged();
     }
 
@@ -158,6 +127,8 @@ public sealed class SessionService
         session.CountdownEndsAt = null;
         session.LastHeartbeatAt = now;
         _store.UpdateSession(session);
+
+        PromoteNextFocused(now, excludeSessionId: session.Id);
         RaiseChanged();
         return session;
     }
@@ -178,6 +149,8 @@ public sealed class SessionService
         session.CountdownEndsAt = null;
         session.LastHeartbeatAt = now;
         _store.UpdateSession(session);
+
+        PromoteNextFocused(now, excludeSessionId: session.Id);
         RaiseChanged();
         return session;
     }
@@ -323,9 +296,10 @@ public sealed class SessionService
 
     public void DeleteSession(Guid sessionId)
     {
-        if (ActiveSession?.Id == sessionId)
+        var inProgress = _store.GetInProgressSessions();
+        if (inProgress.Any(s => s.Id == sessionId))
         {
-            throw new InvalidOperationException("Cannot delete the active session. Finish or discard it first.");
+            throw new InvalidOperationException("Cannot delete an in-progress session. Finish or discard it first.");
         }
 
         _store.DeleteSession(sessionId);
@@ -333,6 +307,97 @@ public sealed class SessionService
     }
 
     public IReadOnlyList<WorkInterval> GetIntervals(Guid sessionId) => _store.GetIntervals(sessionId);
+
+    private WorkSession? GetRunningSession()
+    {
+        return _store.GetInProgressSessions().FirstOrDefault(s => s.State == SessionState.Running);
+    }
+
+    private void PauseSession(WorkSession session)
+    {
+        if (session.State == SessionState.Paused)
+        {
+            throw new InvalidOperationException("Session is already paused.");
+        }
+
+        if (session.State != SessionState.Running)
+        {
+            throw new InvalidOperationException("Only a running session can be paused.");
+        }
+
+        var now = _clock();
+        var open = _store.GetOpenInterval(session.Id);
+        if (open is not null)
+        {
+            _store.CloseInterval(open.Id, now);
+        }
+
+        if (session.Mode == TimerMode.Countdown)
+        {
+            var remaining = SessionCalculations.GetCountdownRemaining(session, now);
+            session.CountdownRemaining = remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            session.CountdownEndsAt = null;
+        }
+
+        session.State = SessionState.Paused;
+        session.LastHeartbeatAt = now;
+        _store.UpdateSession(session);
+    }
+
+    private void ResumeSession(WorkSession session)
+    {
+        if (session.State == SessionState.Running)
+        {
+            throw new InvalidOperationException("Session is already running.");
+        }
+
+        if (session.State != SessionState.Paused)
+        {
+            throw new InvalidOperationException("Only a paused session can be resumed.");
+        }
+
+        if (_store.GetOpenInterval(session.Id) is not null)
+        {
+            throw new InvalidOperationException("Cannot resume while an open interval already exists.");
+        }
+
+        if (GetRunningSession() is not null)
+        {
+            throw new InvalidOperationException("Only one running work session is allowed.");
+        }
+
+        var now = _clock();
+        if (session.Mode == TimerMode.Countdown)
+        {
+            var remaining = session.CountdownRemaining ?? TimeSpan.Zero;
+            session.CountdownEndsAt = now.Add(remaining);
+        }
+
+        var interval = new WorkInterval
+        {
+            Id = Guid.NewGuid(),
+            WorkSessionId = session.Id,
+            StartedAt = now
+        };
+
+        session.State = SessionState.Running;
+        session.LastHeartbeatAt = now;
+        _store.InsertInterval(interval);
+        _store.UpdateSession(session);
+    }
+
+    private void PromoteNextFocused(DateTimeOffset now, Guid excludeSessionId)
+    {
+        var next = _store.GetInProgressSessions()
+            .FirstOrDefault(s => s.Id != excludeSessionId && s.State == SessionState.Paused);
+        if (next is null)
+        {
+            return;
+        }
+
+        next.LastHeartbeatAt = now;
+        _store.UpdateSession(next);
+    }
 
     private WorkSession RequireActive()
     {

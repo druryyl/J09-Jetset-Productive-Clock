@@ -10,8 +10,18 @@ public sealed class InMemorySessionStore : ISessionStore
 
     public WorkSession? GetActiveSession()
     {
-        return _sessions.Values.FirstOrDefault(s =>
-            s.State is SessionState.Running or SessionState.Paused);
+        return GetInProgressSessions().FirstOrDefault();
+    }
+
+    public IReadOnlyList<WorkSession> GetInProgressSessions()
+    {
+        return _sessions.Values
+            .Where(s => s.State is SessionState.Running or SessionState.Paused)
+            .OrderBy(s => s.State == SessionState.Running ? 0 : 1)
+            .ThenByDescending(s => s.LastHeartbeatAt ?? DateTimeOffset.MinValue)
+            .ThenByDescending(s => s.StartedAt)
+            .Select(Clone)
+            .ToList();
     }
 
     public IReadOnlyList<WorkInterval> GetIntervals(Guid sessionId)
@@ -23,9 +33,10 @@ public sealed class InMemorySessionStore : ISessionStore
 
     public void SaveNewSession(WorkSession session, WorkInterval firstInterval)
     {
-        if (GetActiveSession() is not null)
+        if (session.State == SessionState.Running &&
+            _sessions.Values.Any(s => s.State == SessionState.Running))
         {
-            throw new InvalidOperationException("Only one active work session is allowed.");
+            throw new InvalidOperationException("Only one running work session is allowed.");
         }
 
         _sessions[session.Id] = Clone(session);

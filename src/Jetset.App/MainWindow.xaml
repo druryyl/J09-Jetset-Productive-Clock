@@ -28,6 +28,7 @@
         <TextBlock Text="{Binding CompactLine}"
                    Margin="0,8,0,0"
                    FontSize="14"
+                   FontFamily="{DynamicResource MonospaceFont}"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource TextSecondaryBrush}"
                    Visibility="{Binding IsIdle, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
@@ -63,10 +64,10 @@
         <!-- Active session -->
         <StackPanel Visibility="{Binding IsIdle, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}">
           <TextBlock Text="{Binding CurrentTime}" FontFamily="{DynamicResource DisplayFont}"
-                     FontSize="28" FontWeight="SemiBold" />
+                     FontSize="16" FontWeight="SemiBold" />
           <TextBlock Text="{Binding TaskName}" FontSize="18" FontWeight="SemiBold"
                      Margin="0,16,0,4" TextWrapping="Wrap" />
-          <TextBlock Text="{Binding TimerDisplay}" FontFamily="{DynamicResource DisplayFont}"
+          <TextBlock Text="{Binding TimerDisplay}" FontFamily="{DynamicResource MonospaceFont}"
                      FontSize="36" FontWeight="SemiBold" />
           <TextBlock Text="{Binding ModeText}" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0" />
           <TextBlock Text="{Binding StatusText}" FontWeight="SemiBold" Margin="0,4,0,0"

@@ -22,6 +22,7 @@
 
   <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
   <FontFamily x:Key="BodyFont">Segoe UI Variable Text, Segoe UI</FontFamily>
+  <FontFamily x:Key="MonospaceFont">Consolas, monospace</FontFamily>
 
   <Style TargetType="Window">
     <Setter Property="Background" Value="{StaticResource WindowBackgroundBrush}" />

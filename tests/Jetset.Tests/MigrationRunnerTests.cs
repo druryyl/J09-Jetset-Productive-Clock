@@ -47,17 +47,18 @@ public class MigrationRunnerTests : IDisposable
     }
 
     [Fact]
-    public void GivenFreshDatabase_WhenRunnerRuns_ThenVersionIs1AndTablesExist()
+    public void GivenFreshDatabase_WhenRunnerRuns_ThenVersionIs2AndTablesExist()
     {
         var factory = CreateFactory();
 
         RunMigrations(factory);
 
-        Assert.Equal(1, GetSchemaVersion(factory));
+        Assert.Equal(2, GetSchemaVersion(factory));
         Assert.True(TableExists(factory, "WorkSession"));
         Assert.True(TableExists(factory, "WorkInterval"));
         Assert.True(TableExists(factory, "AppSetting"));
         Assert.True(TableExists(factory, "SchemaVersion"));
+        Assert.True(TableExists(factory, "Task"));
     }
 
     [Fact]
@@ -68,8 +69,8 @@ public class MigrationRunnerTests : IDisposable
         RunMigrations(factory);
         RunMigrations(factory);
 
-        Assert.Equal(1, GetSchemaVersion(factory));
-        Assert.Equal(1, CountSchemaVersionRows(factory));
+        Assert.Equal(2, GetSchemaVersion(factory));
+        Assert.Equal(2, CountSchemaVersionRows(factory));
     }
 
     [Fact]
@@ -80,8 +81,9 @@ public class MigrationRunnerTests : IDisposable
 
         RunMigrations(factory);
 
-        Assert.Equal(1, GetSchemaVersion(factory));
+        Assert.Equal(2, GetSchemaVersion(factory));
         Assert.Equal("Legacy Task", GetTaskName(factory, "legacy-session-1"));
+        Assert.True(TableExists(factory, "Task"));
     }
 
     [Fact]
@@ -93,8 +95,8 @@ public class MigrationRunnerTests : IDisposable
         RunMigrations(factory);
         RunMigrations(factory);
 
-        Assert.Equal(1, GetSchemaVersion(factory));
-        Assert.Equal(1, CountSchemaVersionRows(factory));
+        Assert.Equal(2, GetSchemaVersion(factory));
+        Assert.Equal(2, CountSchemaVersionRows(factory));
         Assert.Equal("Still Here", GetTaskName(factory, "legacy-session-2"));
     }
 
@@ -107,7 +109,10 @@ public class MigrationRunnerTests : IDisposable
 
     private static void RunMigrations(SqliteConnectionFactory factory)
     {
-        new MigrationRunner(factory, [new Migration001_InitialSchema()]).RunPending();
+        new MigrationRunner(factory, [
+            new Migration001_InitialSchema(),
+            new Migration002_AddTaskTable()
+        ]).RunPending();
     }
 
     private static void SeedLegacyV1Database(SqliteConnectionFactory factory, string sessionId, string taskName)

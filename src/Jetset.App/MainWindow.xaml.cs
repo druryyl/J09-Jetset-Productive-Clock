@@ -28,6 +28,12 @@ public partial class MainWindow : Window
             // Refresh totals after edits
         };
 
+        _viewModel.OpenTasksRequested += (_, _) =>
+        {
+            var window = new TasksWindow(services) { Owner = this };
+            window.ShowDialog();
+        };
+
         _viewModel.OpenSettingsRequested += (_, _) =>
         {
             var window = new SettingsWindow(services) { Owner = this };

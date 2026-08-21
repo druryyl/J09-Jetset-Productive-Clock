@@ -13,6 +13,9 @@ public sealed class SchemaInitializer
 
     public void Initialize()
     {
-        new MigrationRunner(_factory, [new Migration001_InitialSchema()]).RunPending();
+        new MigrationRunner(_factory, [
+            new Migration001_InitialSchema(),
+            new Migration002_AddTaskTable()
+        ]).RunPending();
     }
 }

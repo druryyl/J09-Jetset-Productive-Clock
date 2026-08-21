@@ -44,6 +44,8 @@ public sealed class TaskListItemViewModel : ObservableObject
             if (SetProperty(ref _status, value))
             {
                 OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(IsTerminal));
+                OnPropertyChanged(nameof(CanReopen));
             }
         }
     }
@@ -117,4 +119,8 @@ public sealed class TaskListItemViewModel : ObservableObject
         string.IsNullOrWhiteSpace(MilestoneName) ? string.Empty : MilestoneName;
 
     public string StatusText => Status.ToString();
+
+    public bool IsTerminal => TaskStatusRules.IsTerminal(Status);
+
+    public bool CanReopen => IsTerminal;
 }

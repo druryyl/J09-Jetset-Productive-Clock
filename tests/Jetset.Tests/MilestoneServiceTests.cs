@@ -147,10 +147,8 @@ public class MilestoneServiceTests : IDisposable
         }
 
         var all = tasks.ListByProject(project.Id);
-        all[0].Status = TaskStatus.Done;
-        tasks.Update(all[0]);
-        all[1].Status = TaskStatus.Done;
-        tasks.Update(all[1]);
+        tasks.TransitionStatus(all[0].Id, TaskStatus.Done);
+        tasks.TransitionStatus(all[1].Id, TaskStatus.Done);
 
         var progress = milestones.GetProgress(milestone.Id);
         Assert.Equal(2, progress.DoneCount);

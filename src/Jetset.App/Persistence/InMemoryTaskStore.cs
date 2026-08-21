@@ -31,6 +31,22 @@ public sealed class InMemoryTaskStore : ITaskStore
             .ToList();
     }
 
+    public IReadOnlyList<WorkTask> ListByStatuses(IReadOnlyList<Models.TaskStatus> statuses)
+    {
+        ArgumentNullException.ThrowIfNull(statuses);
+        if (statuses.Count == 0)
+        {
+            return [];
+        }
+
+        var set = statuses.ToHashSet();
+        return _tasks.Values
+            .Where(t => set.Contains(t.Status))
+            .OrderByDescending(t => t.UpdatedAt)
+            .Select(Clone)
+            .ToList();
+    }
+
     public int CountByProject(Guid projectId) =>
         _tasks.Values.Count(t => t.ProjectId == projectId);
 

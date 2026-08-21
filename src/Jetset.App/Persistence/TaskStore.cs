@@ -114,6 +114,44 @@ public sealed class TaskStore : ITaskStore
         return results;
     }
 
+    public IReadOnlyList<WorkTask> ListByStatuses(IReadOnlyList<Models.TaskStatus> statuses)
+    {
+        ArgumentNullException.ThrowIfNull(statuses);
+        if (statuses.Count == 0)
+        {
+            return [];
+        }
+
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+
+        var placeholders = new string[statuses.Count];
+        for (var i = 0; i < statuses.Count; i++)
+        {
+            var name = "@s" + i;
+            placeholders[i] = name;
+            command.Parameters.AddWithValue(name, (int)statuses[i]);
+        }
+
+        command.CommandText =
+            $"""
+            SELECT Id, Title, Status, Notes, CurrentStatus, LastProgress, NextAction, Blocker,
+                   ProjectId, MilestoneId, CreatedAt, UpdatedAt, LastWorkedAt
+            FROM "Task"
+            WHERE Status IN ({string.Join(", ", placeholders)})
+            ORDER BY UpdatedAt DESC;
+            """;
+
+        var results = new List<WorkTask>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadTask(reader));
+        }
+
+        return results;
+    }
+
     public int CountByProject(Guid projectId)
     {
         using var connection = _factory.Create();

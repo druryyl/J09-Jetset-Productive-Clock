@@ -184,7 +184,7 @@ public sealed class TaskService
         {
             Id = existing.Id,
             Title = trimmed,
-            Status = task.Status,
+            Status = existing.Status,
             Notes = string.IsNullOrWhiteSpace(task.Notes) ? null : task.Notes.Trim(),
             CurrentStatus = task.CurrentStatus,
             LastProgress = task.LastProgress,
@@ -199,6 +199,52 @@ public sealed class TaskService
 
         _store.Update(updated);
         return updated;
+    }
+
+    public WorkTask TransitionStatus(Guid taskId, TaskStatus newStatus)
+    {
+        var existing = _store.Get(taskId)
+            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+
+        if (!TaskStatusRules.CanTransition(existing.Status, newStatus))
+        {
+            throw new InvalidOperationException(
+                $"Cannot transition task from {existing.Status} to {newStatus}.");
+        }
+
+        if (existing.Status == newStatus)
+        {
+            return existing;
+        }
+
+        var updated = new WorkTask
+        {
+            Id = existing.Id,
+            Title = existing.Title,
+            Status = newStatus,
+            Notes = existing.Notes,
+            CurrentStatus = existing.CurrentStatus,
+            LastProgress = existing.LastProgress,
+            NextAction = existing.NextAction,
+            Blocker = existing.Blocker,
+            ProjectId = existing.ProjectId,
+            MilestoneId = existing.MilestoneId,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = _clock(),
+            LastWorkedAt = existing.LastWorkedAt
+        };
+
+        _store.Update(updated);
+        return updated;
+    }
+
+    public IReadOnlyList<WorkTask> ListActiveWork() =>
+        _store.ListByStatuses([TaskStatus.Active, TaskStatus.Blocked]);
+
+    public bool IsEligibleForActiveWork(WorkTask task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        return TaskStatusRules.IsEligibleForActiveWork(task.Status);
     }
 
     public void Delete(Guid id) => _store.Delete(id);

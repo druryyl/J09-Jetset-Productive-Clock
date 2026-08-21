@@ -104,9 +104,161 @@ public class TaskServiceTests : IDisposable
 
         Assert.Equal("Updated title", updated.Title);
         Assert.Equal("Some notes", updated.Notes);
-        Assert.Equal(TaskStatus.Blocked, updated.Status);
+        Assert.Equal(TaskStatus.Active, updated.Status);
         Assert.Equal(start, updated.CreatedAt);
         Assert.Equal(start.AddMinutes(5), updated.UpdatedAt);
+    }
+
+    [Fact]
+    public void Update_DoesNotChangeStatus()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Keep status");
+        service.TransitionStatus(task.Id, TaskStatus.Blocked);
+
+        var loaded = service.Get(task.Id)!;
+        loaded.Status = TaskStatus.Done;
+        loaded.Title = "Renamed";
+
+        var updated = service.Update(loaded);
+
+        Assert.Equal("Renamed", updated.Title);
+        Assert.Equal(TaskStatus.Blocked, updated.Status);
+    }
+
+    [Fact]
+    public void TransitionStatus_ActiveToBlocked_Succeeds()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, _, _, setNow) = CreateHarness(start);
+        var task = service.Create("Block me");
+        setNow(start.AddMinutes(1));
+
+        var updated = service.TransitionStatus(task.Id, TaskStatus.Blocked);
+
+        Assert.Equal(TaskStatus.Blocked, updated.Status);
+        Assert.Equal(start.AddMinutes(1), updated.UpdatedAt);
+        Assert.Equal(TaskStatus.Blocked, service.Get(task.Id)!.Status);
+    }
+
+    [Fact]
+    public void TransitionStatus_DoneToActive_Reopens()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Done task");
+        service.TransitionStatus(task.Id, TaskStatus.Done);
+
+        var reopened = service.TransitionStatus(task.Id, TaskStatus.Active);
+
+        Assert.Equal(TaskStatus.Active, reopened.Status);
+    }
+
+    [Fact]
+    public void TransitionStatus_CancelledToActive_Reopens()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Cancelled task");
+        service.TransitionStatus(task.Id, TaskStatus.Cancelled);
+
+        var reopened = service.TransitionStatus(task.Id, TaskStatus.Active);
+
+        Assert.Equal(TaskStatus.Active, reopened.Status);
+    }
+
+    [Fact]
+    public void TransitionStatus_DoneToBlocked_Throws()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Terminal");
+        service.TransitionStatus(task.Id, TaskStatus.Done);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            service.TransitionStatus(task.Id, TaskStatus.Blocked));
+    }
+
+    [Fact]
+    public void TransitionStatus_SameStatus_IsNoOp()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, _, _, setNow) = CreateHarness(start);
+        var task = service.Create("Same");
+        setNow(start.AddMinutes(10));
+
+        var result = service.TransitionStatus(task.Id, TaskStatus.Active);
+
+        Assert.Equal(TaskStatus.Active, result.Status);
+        Assert.Equal(start, result.UpdatedAt);
+    }
+
+    [Fact]
+    public void ListActiveWork_ExcludesDoneAndCancelled()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var active = service.Create("Active");
+        var blocked = service.Create("Blocked");
+        var done = service.Create("Done");
+        var cancelled = service.Create("Cancelled");
+
+        service.TransitionStatus(blocked.Id, TaskStatus.Blocked);
+        service.TransitionStatus(done.Id, TaskStatus.Done);
+        service.TransitionStatus(cancelled.Id, TaskStatus.Cancelled);
+
+        var activeWork = service.ListActiveWork();
+
+        Assert.Equal(2, activeWork.Count);
+        Assert.Contains(activeWork, t => t.Id == active.Id);
+        Assert.Contains(activeWork, t => t.Id == blocked.Id);
+        Assert.DoesNotContain(activeWork, t => t.Id == done.Id);
+        Assert.DoesNotContain(activeWork, t => t.Id == cancelled.Id);
+
+        Assert.True(service.IsEligibleForActiveWork(service.Get(active.Id)!));
+        Assert.True(service.IsEligibleForActiveWork(service.Get(blocked.Id)!));
+        Assert.False(service.IsEligibleForActiveWork(service.Get(done.Id)!));
+        Assert.False(service.IsEligibleForActiveWork(service.Get(cancelled.Id)!));
+    }
+
+    [Fact]
+    public void TransitionStatus_ToDone_ReflectsInMilestoneProgress()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var taskStore = new InMemoryTaskStore();
+        var projectStore = new InMemoryProjectStore(() => taskStore.List());
+        var milestoneStore = new InMemoryMilestoneStore();
+        var tasks = new TaskService(taskStore, projectStore, milestoneStore, () => start);
+        var milestoneService = new MilestoneService(milestoneStore, projectStore, taskStore, () => start);
+
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "Jetset",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        projectStore.Insert(project);
+        var milestone = new Milestone
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "Domain",
+            SortOrder = 0,
+            CreatedAt = start
+        };
+        milestoneStore.Insert(milestone);
+
+        var t1 = tasks.Create("One", project.Id);
+        var t2 = tasks.Create("Two", project.Id);
+        tasks.AssignToMilestone(t1.Id, milestone.Id);
+        tasks.AssignToMilestone(t2.Id, milestone.Id);
+
+        var before = milestoneService.GetProgress(milestone.Id);
+        Assert.Equal(0, before.DoneCount);
+        Assert.Equal(2, before.TotalCount);
+
+        tasks.TransitionStatus(t1.Id, TaskStatus.Done);
+
+        var after = milestoneService.GetProgress(milestone.Id);
+        Assert.Equal(1, after.DoneCount);
+        Assert.Equal(2, after.TotalCount);
     }
 
     [Fact]

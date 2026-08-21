@@ -12,6 +12,8 @@ public interface ITaskStore
 
     IReadOnlyList<WorkTask> Search(string query);
 
+    IReadOnlyList<WorkTask> ListByStatuses(IReadOnlyList<Models.TaskStatus> statuses);
+
     int CountByProject(Guid projectId);
 
     IReadOnlyList<WorkTask> ListByMilestone(Guid milestoneId);

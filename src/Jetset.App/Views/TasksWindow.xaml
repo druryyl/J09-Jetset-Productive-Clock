@@ -4,15 +4,58 @@
         xmlns:helpers="clr-namespace:Jetset.App.Helpers"
         Title="Tasks"
         Width="720"
-        Height="540"
+        Height="560"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource TextPrimaryBrush}">
   <Window.Resources>
     <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+    <DataTemplate x:Key="TaskStatusBadgeTemplate">
+      <Border Padding="6,2" CornerRadius="3" BorderThickness="1" HorizontalAlignment="Left">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding Status}" Value="Blocked">
+                <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource PausedBrush}" />
+              </DataTrigger>
+              <DataTrigger Binding="{Binding Status}" Value="Done">
+                <Setter Property="Background" Value="{DynamicResource AccentMutedBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+              </DataTrigger>
+              <DataTrigger Binding="{Binding Status}" Value="Cancelled">
+                <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+        <TextBlock Text="{Binding StatusText}" FontSize="11">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Blocked">
+                  <Setter Property="Foreground" Value="{DynamicResource PausedBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Done">
+                  <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Cancelled">
+                  <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </Border>
+    </DataTemplate>
   </Window.Resources>
   <Grid Margin="16">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -43,14 +86,23 @@
                 Padding="4" />
     </DockPanel>
 
-    <DockPanel Grid.Row="3" Margin="0,0,0,12">
+    <DockPanel Grid.Row="3" Margin="0,0,0,8">
+      <TextBlock DockPanel.Dock="Left" Text="Status" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" />
+      <ComboBox ItemsSource="{Binding StatusFilterOptions}"
+                SelectedItem="{Binding SelectedStatusFilter}"
+                DisplayMemberPath="DisplayName"
+                Padding="4" />
+    </DockPanel>
+
+    <DockPanel Grid.Row="4" Margin="0,0,0,12">
       <Button DockPanel.Dock="Right" Content="Add Task" Command="{Binding AddTaskCommand}"
               Style="{DynamicResource PrimaryButton}" Margin="8,0,0,0" />
       <TextBox Text="{Binding QuickAddTitle, UpdateSourceTrigger=PropertyChanged}"
                Padding="6" VerticalAlignment="Center" />
     </DockPanel>
 
-    <Grid Grid.Row="4">
+    <Grid Grid.Row="5">
       <TextBlock Text="No tasks yet. Add one above."
                  VerticalAlignment="Center" HorizontalAlignment="Center"
                  Foreground="{DynamicResource TextSecondaryBrush}"
@@ -68,8 +120,8 @@
             <DataTemplate>
               <StackPanel Margin="4">
                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                <TextBlock Text="{Binding StatusText}" FontSize="11"
-                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource TaskStatusBadgeTemplate}"
+                                  Margin="0,4,0,0" />
                 <TextBlock Text="{Binding ProjectDisplay}" FontSize="11"
                            Foreground="{DynamicResource TextSecondaryBrush}"
                            Visibility="{Binding HasProject, Converter={StaticResource BoolToVis}}" />
@@ -91,6 +143,11 @@
             <ComboBox ItemsSource="{Binding StatusOptions}"
                       SelectedItem="{Binding Selected.Status}"
                       Margin="0,4,0,8" />
+            <Button Content="Reopen"
+                    Command="{Binding ReopenCommand}"
+                    Style="{DynamicResource SecondaryButton}"
+                    Margin="0,0,0,8"
+                    Visibility="{Binding CanReopenSelected, Converter={StaticResource BoolToVis}}" />
             <TextBlock Text="Project" Foreground="{DynamicResource TextSecondaryBrush}" />
             <ComboBox ItemsSource="{Binding ProjectOptions}"
                       SelectedItem="{Binding SelectedProjectOption}"
@@ -118,7 +175,7 @@
       </Grid>
     </Grid>
 
-    <DockPanel Grid.Row="5" Margin="0,12,0,0">
+    <DockPanel Grid.Row="6" Margin="0,12,0,0">
       <Button DockPanel.Dock="Right" Content="Close"
               Style="{DynamicResource SecondaryButton}" IsCancel="True" Click="Close_Click" />
       <TextBlock Text="{Binding Message}" VerticalAlignment="Center" TextWrapping="Wrap"

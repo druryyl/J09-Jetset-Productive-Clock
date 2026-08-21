@@ -10,6 +10,48 @@
         Foreground="{DynamicResource TextPrimaryBrush}">
   <Window.Resources>
     <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+    <DataTemplate x:Key="TaskStatusBadgeTemplate">
+      <Border Padding="6,2" CornerRadius="3" BorderThickness="1" HorizontalAlignment="Left">
+        <Border.Style>
+          <Style TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource AccentMutedBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding Status}" Value="Blocked">
+                <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource PausedBrush}" />
+              </DataTrigger>
+              <DataTrigger Binding="{Binding Status}" Value="Done">
+                <Setter Property="Background" Value="{DynamicResource AccentMutedBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource TextSecondaryBrush}" />
+              </DataTrigger>
+              <DataTrigger Binding="{Binding Status}" Value="Cancelled">
+                <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </Border.Style>
+        <TextBlock Text="{Binding StatusText}" FontSize="11">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="Blocked">
+                  <Setter Property="Foreground" Value="{DynamicResource PausedBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Done">
+                  <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="Cancelled">
+                  <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+      </Border>
+    </DataTemplate>
   </Window.Resources>
   <Grid Margin="16">
     <Grid.RowDefinitions>
@@ -138,8 +180,8 @@
                   <DataTemplate>
                     <StackPanel Margin="0,0,0,4">
                       <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding StatusText}" FontSize="11"
-                                 Foreground="{DynamicResource TextSecondaryBrush}" />
+                      <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource TaskStatusBadgeTemplate}"
+                                        Margin="0,2,0,0" />
                       <TextBlock Text="{Binding MilestoneDisplay}" FontSize="11"
                                  Foreground="{DynamicResource TextSecondaryBrush}"
                                  Visibility="{Binding HasMilestone, Converter={StaticResource BoolToVis}}" />

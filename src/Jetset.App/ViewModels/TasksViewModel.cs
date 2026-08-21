@@ -17,11 +17,30 @@ public enum ProjectFilterMode
     Project
 }
 
+public enum StatusFilterMode
+{
+    All,
+    ActiveWork,
+    Active,
+    Blocked,
+    Done,
+    Cancelled
+}
+
 public sealed class ProjectFilterOption
 {
     public ProjectFilterMode Mode { get; init; }
 
     public Guid? ProjectId { get; init; }
+
+    public required string DisplayName { get; init; }
+
+    public override string ToString() => DisplayName;
+}
+
+public sealed class StatusFilterOption
+{
+    public StatusFilterMode Mode { get; init; }
 
     public required string DisplayName { get; init; }
 
@@ -53,8 +72,10 @@ public sealed class TasksViewModel : ObservableObject
     private string _searchText = string.Empty;
     private string _quickAddTitle = string.Empty;
     private ProjectFilterOption? _selectedFilter;
+    private StatusFilterOption? _selectedStatusFilter;
     private ProjectAssignOption? _selectedProjectOption;
     private MilestoneAssignOption? _selectedMilestoneOption;
+    private TaskStatus _loadedStatus;
     private string? _message;
     private bool _suppressFilterReload;
     private bool _suppressMilestoneRebuild;
@@ -64,6 +85,15 @@ public sealed class TasksViewModel : ObservableObject
         _services = services;
         Items = new ObservableCollection<TaskListItemViewModel>();
         FilterOptions = new ObservableCollection<ProjectFilterOption>();
+        StatusFilterOptions = new ObservableCollection<StatusFilterOption>
+        {
+            new() { Mode = StatusFilterMode.All, DisplayName = "All statuses" },
+            new() { Mode = StatusFilterMode.ActiveWork, DisplayName = "Active work" },
+            new() { Mode = StatusFilterMode.Active, DisplayName = "Active" },
+            new() { Mode = StatusFilterMode.Blocked, DisplayName = "Blocked" },
+            new() { Mode = StatusFilterMode.Done, DisplayName = "Done" },
+            new() { Mode = StatusFilterMode.Cancelled, DisplayName = "Cancelled" }
+        };
         ProjectOptions = new ObservableCollection<ProjectAssignOption>();
         MilestoneOptions = new ObservableCollection<MilestoneAssignOption>();
         StatusOptions = Enum.GetValues<TaskStatus>();
@@ -71,16 +101,20 @@ public sealed class TasksViewModel : ObservableObject
         AddTaskCommand = new RelayCommand(AddTask, CanAddTask);
         SaveCommand = new RelayCommand(Save, () => Selected is not null);
         DeleteCommand = new RelayCommand(Delete, () => Selected is not null);
+        ReopenCommand = new RelayCommand(Reopen, () => Selected?.CanReopen == true);
         RefreshCommand = new RelayCommand(Load);
 
         RebuildProjectOptions();
         _selectedFilter = FilterOptions[0];
+        _selectedStatusFilter = StatusFilterOptions[0];
         Load();
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; }
 
     public ObservableCollection<ProjectFilterOption> FilterOptions { get; }
+
+    public ObservableCollection<StatusFilterOption> StatusFilterOptions { get; }
 
     public ObservableCollection<ProjectAssignOption> ProjectOptions { get; }
 
@@ -91,6 +125,7 @@ public sealed class TasksViewModel : ObservableObject
     public RelayCommand AddTaskCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand DeleteCommand { get; }
+    public RelayCommand ReopenCommand { get; }
     public RelayCommand RefreshCommand { get; }
 
     public TaskListItemViewModel? Selected
@@ -100,9 +135,12 @@ public sealed class TasksViewModel : ObservableObject
         {
             if (SetProperty(ref _selected, value))
             {
+                _loadedStatus = value?.Status ?? TaskStatus.Active;
                 OnPropertyChanged(nameof(HasSelection));
+                OnPropertyChanged(nameof(CanReopenSelected));
                 SaveCommand.RaiseCanExecuteChanged();
                 DeleteCommand.RaiseCanExecuteChanged();
+                ReopenCommand.RaiseCanExecuteChanged();
                 SyncSelectedProjectOption();
                 RebuildMilestoneOptions(SelectedProjectOption?.ProjectId);
                 SyncSelectedMilestoneOption();
@@ -116,6 +154,8 @@ public sealed class TasksViewModel : ObservableObject
     public bool HasItems => Items.Count > 0;
 
     public bool CanAssignMilestone => SelectedProjectOption?.ProjectId is not null;
+
+    public bool CanReopenSelected => Selected?.CanReopen == true;
 
     public string SearchText
     {
@@ -135,6 +175,18 @@ public sealed class TasksViewModel : ObservableObject
         set
         {
             if (SetProperty(ref _selectedFilter, value) && !_suppressFilterReload)
+            {
+                Load();
+            }
+        }
+    }
+
+    public StatusFilterOption? SelectedStatusFilter
+    {
+        get => _selectedStatusFilter;
+        set
+        {
+            if (SetProperty(ref _selectedStatusFilter, value) && !_suppressFilterReload)
             {
                 Load();
             }
@@ -324,6 +376,18 @@ public sealed class TasksViewModel : ObservableObject
         return map;
     }
 
+    private static bool MatchesStatusFilter(WorkTask task, StatusFilterMode mode) =>
+        mode switch
+        {
+            StatusFilterMode.All => true,
+            StatusFilterMode.ActiveWork => TaskStatusRules.IsEligibleForActiveWork(task.Status),
+            StatusFilterMode.Active => task.Status == TaskStatus.Active,
+            StatusFilterMode.Blocked => task.Status == TaskStatus.Blocked,
+            StatusFilterMode.Done => task.Status == TaskStatus.Done,
+            StatusFilterMode.Cancelled => task.Status == TaskStatus.Cancelled,
+            _ => true
+        };
+
     private void Load()
     {
         RebuildProjectOptions();
@@ -356,6 +420,9 @@ public sealed class TasksViewModel : ObservableObject
                 _ => _services.Tasks.List()
             };
         }
+
+        var statusMode = SelectedStatusFilter?.Mode ?? StatusFilterMode.All;
+        tasks = tasks.Where(t => MatchesStatusFilter(t, statusMode));
 
         foreach (var task in tasks)
         {
@@ -414,6 +481,7 @@ public sealed class TasksViewModel : ObservableObject
         {
             var projectId = SelectedProjectOption?.ProjectId;
             var milestoneId = projectId is null ? null : SelectedMilestoneOption?.MilestoneId;
+            var newStatus = Selected.Status;
 
             var updated = new WorkTask
             {
@@ -433,9 +501,36 @@ public sealed class TasksViewModel : ObservableObject
             };
 
             var result = _services.Tasks.Update(updated);
+
+            if (newStatus != _loadedStatus)
+            {
+                result = _services.Tasks.TransitionStatus(result.Id, newStatus);
+            }
+
             Load();
             Selected = Items.FirstOrDefault(i => i.Id == result.Id);
             Message = "Task updated.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private void Reopen()
+    {
+        if (Selected is null || !Selected.CanReopen)
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            var result = _services.Tasks.TransitionStatus(Selected.Id, TaskStatus.Active);
+            Load();
+            Selected = Items.FirstOrDefault(i => i.Id == result.Id);
+            Message = "Task reopened.";
         }
         catch (Exception ex)
         {

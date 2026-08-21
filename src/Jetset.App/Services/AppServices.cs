@@ -1,4 +1,3 @@
-using Jetset.App.Models;
 using Jetset.App.Persistence;
 
 namespace Jetset.App.Services;
@@ -21,9 +20,11 @@ public sealed class AppServices
         SessionStore = new SessionStore(ConnectionFactory);
         SettingsStore = new SettingsStore(ConnectionFactory);
         TaskStore = new TaskStore(ConnectionFactory);
+        ProjectStore = new ProjectStore(ConnectionFactory);
         Clock = new ClockService();
         Sessions = new SessionService(SessionStore, () => Clock.Now);
-        Tasks = new TaskService(TaskStore, () => Clock.Now);
+        Tasks = new TaskService(TaskStore, ProjectStore, () => Clock.Now);
+        Projects = new ProjectService(ProjectStore, TaskStore, () => Clock.Now);
         Notifications = new NotificationService();
         Startup = new StartupService();
         Settings = new SettingsService(SettingsStore, Startup);
@@ -36,9 +37,11 @@ public sealed class AppServices
     public SessionStore SessionStore { get; }
     public SettingsStore SettingsStore { get; }
     public TaskStore TaskStore { get; }
+    public ProjectStore ProjectStore { get; }
     public ClockService Clock { get; }
     public SessionService Sessions { get; }
     public TaskService Tasks { get; }
+    public ProjectService Projects { get; }
     public NotificationService Notifications { get; }
     public StartupService Startup { get; }
     public SettingsService Settings { get; }

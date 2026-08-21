@@ -3,8 +3,8 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:helpers="clr-namespace:Jetset.App.Helpers"
         Title="Tasks"
-        Width="680"
-        Height="520"
+        Width="720"
+        Height="540"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource TextPrimaryBrush}">
@@ -13,6 +13,7 @@
   </Window.Resources>
   <Grid Margin="16">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -33,14 +34,23 @@
       <TextBox Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}" Padding="6" />
     </DockPanel>
 
-    <DockPanel Grid.Row="2" Margin="0,0,0,12">
+    <DockPanel Grid.Row="2" Margin="0,0,0,8">
+      <TextBlock DockPanel.Dock="Left" Text="Project" VerticalAlignment="Center"
+                 Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" />
+      <ComboBox ItemsSource="{Binding FilterOptions}"
+                SelectedItem="{Binding SelectedFilter}"
+                DisplayMemberPath="DisplayName"
+                Padding="4" />
+    </DockPanel>
+
+    <DockPanel Grid.Row="3" Margin="0,0,0,12">
       <Button DockPanel.Dock="Right" Content="Add Task" Command="{Binding AddTaskCommand}"
               Style="{DynamicResource PrimaryButton}" Margin="8,0,0,0" />
       <TextBox Text="{Binding QuickAddTitle, UpdateSourceTrigger=PropertyChanged}"
                Padding="6" VerticalAlignment="Center" />
     </DockPanel>
 
-    <Grid Grid.Row="3">
+    <Grid Grid.Row="4">
       <TextBlock Text="No tasks yet. Add one above."
                  VerticalAlignment="Center" HorizontalAlignment="Center"
                  Foreground="{DynamicResource TextSecondaryBrush}"
@@ -60,6 +70,9 @@
                 <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
                 <TextBlock Text="{Binding StatusText}" FontSize="11"
                            Foreground="{DynamicResource TextSecondaryBrush}" />
+                <TextBlock Text="{Binding ProjectDisplay}" FontSize="11"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           Visibility="{Binding HasProject, Converter={StaticResource BoolToVis}}" />
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -78,6 +91,11 @@
             <ComboBox ItemsSource="{Binding StatusOptions}"
                       SelectedItem="{Binding Selected.Status}"
                       Margin="0,4,0,8" />
+            <TextBlock Text="Project" Foreground="{DynamicResource TextSecondaryBrush}" />
+            <ComboBox ItemsSource="{Binding ProjectOptions}"
+                      SelectedItem="{Binding SelectedProjectOption}"
+                      DisplayMemberPath="DisplayName"
+                      Margin="0,4,0,8" />
             <TextBlock Text="Notes" Foreground="{DynamicResource TextSecondaryBrush}" />
             <TextBox Text="{Binding Selected.Notes, UpdateSourceTrigger=PropertyChanged}"
                      Margin="0,4,0,8" Padding="4"
@@ -94,7 +112,7 @@
       </Grid>
     </Grid>
 
-    <DockPanel Grid.Row="4" Margin="0,12,0,0">
+    <DockPanel Grid.Row="5" Margin="0,12,0,0">
       <Button DockPanel.Dock="Right" Content="Close"
               Style="{DynamicResource SecondaryButton}" IsCancel="True" Click="Close_Click" />
       <TextBlock Text="{Binding Message}" VerticalAlignment="Center" TextWrapping="Wrap"

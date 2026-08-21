@@ -1,0 +1,128 @@
+<Window x:Class="Jetset.App.Views.ProjectsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:helpers="clr-namespace:Jetset.App.Helpers"
+        Title="Projects"
+        Width="720"
+        Height="540"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+  <Window.Resources>
+    <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+  </Window.Resources>
+  <Grid Margin="16">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <DockPanel Grid.Row="0" Margin="0,0,0,8">
+      <Button DockPanel.Dock="Right" Content="Refresh" Command="{Binding RefreshCommand}"
+              Style="{DynamicResource SecondaryButton}" />
+      <TextBlock Text="Projects" FontSize="20" FontWeight="SemiBold"
+                 FontFamily="{DynamicResource DisplayFont}" VerticalAlignment="Center" />
+    </DockPanel>
+
+    <DockPanel Grid.Row="1" Margin="0,0,0,12">
+      <Button DockPanel.Dock="Right" Content="Add Project" Command="{Binding AddProjectCommand}"
+              Style="{DynamicResource PrimaryButton}" Margin="8,0,0,0" />
+      <TextBox Text="{Binding QuickAddName, UpdateSourceTrigger=PropertyChanged}"
+               Padding="6" VerticalAlignment="Center" />
+    </DockPanel>
+
+    <Grid Grid.Row="2">
+      <TextBlock Text="No projects yet. Add one above."
+                 VerticalAlignment="Center" HorizontalAlignment="Center"
+                 Foreground="{DynamicResource TextSecondaryBrush}"
+                 Visibility="{Binding HasItems, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
+
+      <Grid Visibility="{Binding HasItems, Converter={StaticResource BoolToVis}}">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="2*" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <ListBox Grid.Column="0" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}"
+                 BorderBrush="{DynamicResource BorderBrush}" Background="{DynamicResource PanelBackgroundBrush}">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <StackPanel Margin="4">
+                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding TaskCountText}" FontSize="11"
+                           Foreground="{DynamicResource TextSecondaryBrush}" />
+                <TextBlock Text="{Binding DeadlineText}" FontSize="11"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           Visibility="{Binding HasDeadline, Converter={StaticResource BoolToVis}}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Column="1" Margin="12,0,0,0" Padding="12"
+                Background="{DynamicResource PanelBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                Visibility="{Binding HasSelection, Converter={StaticResource BoolToVis}}">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+              <TextBlock Text="Project detail" FontWeight="SemiBold" Margin="0,0,0,8" />
+              <TextBlock Text="Name" Foreground="{DynamicResource TextSecondaryBrush}" />
+              <TextBox Text="{Binding Selected.Name, UpdateSourceTrigger=PropertyChanged}"
+                       Margin="0,4,0,8" Padding="4" />
+
+              <CheckBox Content="Set deadline" IsChecked="{Binding Selected.HasDeadline}"
+                        Margin="0,0,0,4" />
+              <DatePicker SelectedDate="{Binding Selected.DeadlineDate}"
+                          Margin="0,0,0,8"
+                          IsEnabled="{Binding Selected.HasDeadline}"
+                          Visibility="{Binding Selected.HasDeadline, Converter={StaticResource BoolToVis}}" />
+
+              <TextBlock Text="Tasks" FontWeight="SemiBold" Margin="0,4,0,4" />
+              <TextBlock Text="No tasks in this project."
+                         FontSize="12"
+                         Foreground="{DynamicResource TextSecondaryBrush}"
+                         Margin="0,0,0,8"
+                         Visibility="{Binding HasProjectTasks, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
+              <ItemsControl ItemsSource="{Binding ProjectTasks}"
+                            Visibility="{Binding HasProjectTasks, Converter={StaticResource BoolToVis}}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Margin="0,0,0,4">
+                      <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding StatusText}" FontSize="11"
+                                 Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+
+              <DockPanel Margin="0,8,0,8">
+                <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddTaskCommand}"
+                        Style="{DynamicResource SecondaryButton}" Margin="8,0,0,0" />
+                <TextBox Text="{Binding QuickAddTaskTitle, UpdateSourceTrigger=PropertyChanged}"
+                         Padding="4" VerticalAlignment="Center" />
+              </DockPanel>
+
+              <Button Content="Save changes" Command="{Binding SaveCommand}"
+                      Style="{DynamicResource PrimaryButton}" />
+              <Button Content="Delete project" Command="{Binding DeleteCommand}" Margin="0,8,0,0"
+                      Style="{DynamicResource SecondaryButton}" />
+              <TextBlock Text="{Binding Message}" Margin="0,8,0,0" TextWrapping="Wrap"
+                         Foreground="{DynamicResource TextSecondaryBrush}" />
+            </StackPanel>
+          </ScrollViewer>
+        </Border>
+      </Grid>
+    </Grid>
+
+    <DockPanel Grid.Row="3" Margin="0,12,0,0">
+      <Button DockPanel.Dock="Right" Content="Close"
+              Style="{DynamicResource SecondaryButton}" IsCancel="True" Click="Close_Click" />
+      <TextBlock Text="{Binding Message}" VerticalAlignment="Center" TextWrapping="Wrap"
+                 Foreground="{DynamicResource TextSecondaryBrush}"
+                 Visibility="{Binding HasItems, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
+    </DockPanel>
+  </Grid>
+</Window>

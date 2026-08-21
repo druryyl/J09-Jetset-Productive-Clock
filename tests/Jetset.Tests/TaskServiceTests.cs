@@ -48,20 +48,21 @@ public class TaskServiceTests : IDisposable
         }
     }
 
-    private static (TaskService Service, InMemoryTaskStore Store, Action<DateTimeOffset> SetNow)
+    private static (TaskService Service, InMemoryTaskStore Store, InMemoryProjectStore ProjectStore, Action<DateTimeOffset> SetNow)
         CreateHarness(DateTimeOffset start)
     {
         var now = start;
         var store = new InMemoryTaskStore();
-        var service = new TaskService(store, () => now);
-        return (service, store, value => now = value);
+        var projectStore = new InMemoryProjectStore(() => store.List());
+        var service = new TaskService(store, projectStore, () => now);
+        return (service, store, projectStore, value => now = value);
     }
 
     [Fact]
     public void Create_WithTitle_PersistsActiveTask()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (service, store, _) = CreateHarness(start);
+        var (service, store, _, _) = CreateHarness(start);
 
         var task = service.Create("Review PR");
 
@@ -79,7 +80,7 @@ public class TaskServiceTests : IDisposable
     [Fact]
     public void Create_WithBlankTitle_Throws()
     {
-        var (service, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (service, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         Assert.Throws<ArgumentException>(() => service.Create("   "));
         Assert.Throws<ArgumentException>(() => service.Create(""));
@@ -89,7 +90,7 @@ public class TaskServiceTests : IDisposable
     public void Update_ChangesTitleAndNotes()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (service, _, setNow) = CreateHarness(start);
+        var (service, _, _, setNow) = CreateHarness(start);
 
         var task = service.Create("Original");
         setNow(start.AddMinutes(5));
@@ -110,7 +111,7 @@ public class TaskServiceTests : IDisposable
     [Fact]
     public void Delete_RemovesTask()
     {
-        var (service, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (service, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         var task = service.Create("To delete");
         service.Delete(task.Id);
@@ -122,7 +123,7 @@ public class TaskServiceTests : IDisposable
     [Fact]
     public void Search_MatchesTitleSubstring()
     {
-        var (service, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (service, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         service.Create("Review PR");
         service.Create("Reply Email");
@@ -137,11 +138,102 @@ public class TaskServiceTests : IDisposable
     [Fact]
     public void Search_WithEmptyQuery_ReturnsEmpty()
     {
-        var (service, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (service, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
         service.Create("Something");
 
         Assert.Empty(service.Search(""));
         Assert.Empty(service.Search("   "));
+    }
+
+    [Fact]
+    public void AssignToProject_LinksTask()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, projectStore, setNow) = CreateHarness(start);
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "Jetset",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        projectStore.Insert(project);
+
+        var task = service.Create("Review PR");
+        setNow(start.AddMinutes(2));
+
+        var updated = service.AssignToProject(task.Id, project.Id);
+
+        Assert.Equal(project.Id, updated.ProjectId);
+        Assert.Equal(start.AddMinutes(2), updated.UpdatedAt);
+        Assert.Equal(project.Id, service.Get(task.Id)!.ProjectId);
+    }
+
+    [Fact]
+    public void AssignToProject_WithInvalidProject_Throws()
+    {
+        var (service, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Orphan");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            service.AssignToProject(task.Id, Guid.NewGuid()));
+    }
+
+    [Fact]
+    public void UnassignFromProject_ClearsProjectId()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, projectStore, _) = CreateHarness(start);
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "Jetset",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        projectStore.Insert(project);
+
+        var task = service.Create("Review PR", project.Id);
+        task.MilestoneId = Guid.NewGuid();
+        service.Update(task);
+
+        var updated = service.AssignToProject(task.Id, null);
+
+        Assert.Null(updated.ProjectId);
+        Assert.Null(updated.MilestoneId);
+    }
+
+    [Fact]
+    public void ListByProject_FiltersCorrectly()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, projectStore, _) = CreateHarness(start);
+        var projectA = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "A",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        var projectB = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "B",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        projectStore.Insert(projectA);
+        projectStore.Insert(projectB);
+
+        service.Create("In A", projectA.Id);
+        service.Create("Also in A", projectA.Id);
+        service.Create("In B", projectB.Id);
+        service.Create("Unassigned");
+
+        Assert.Equal(2, service.ListByProject(projectA.Id).Count);
+        Assert.Single(service.ListByProject(projectB.Id));
+        Assert.Single(service.ListByProject(null));
+        Assert.Equal(4, service.List().Count);
     }
 
     [Fact]

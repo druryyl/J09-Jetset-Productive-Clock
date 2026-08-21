@@ -62,6 +62,7 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
         FinishCommand = new RelayCommand(Finish, () => UiState is UiSessionState.Running or UiSessionState.Paused);
         OpenHistoryCommand = new RelayCommand(() => OpenHistoryRequested?.Invoke(this, EventArgs.Empty));
         OpenTasksCommand = new RelayCommand(() => OpenTasksRequested?.Invoke(this, EventArgs.Empty));
+        OpenProjectsCommand = new RelayCommand(() => OpenProjectsRequested?.Invoke(this, EventArgs.Empty));
         OpenSettingsCommand = new RelayCommand(() => OpenSettingsRequested?.Invoke(this, EventArgs.Empty));
         ToggleCompactCommand = new RelayCommand(ToggleCompact);
         SwitchToSessionCommand = new RelayCommand(SwitchToSession);
@@ -124,12 +125,14 @@ public sealed class MainWindowViewModel : ObservableObject, IDisposable
     public RelayCommand FinishCommand { get; }
     public RelayCommand OpenHistoryCommand { get; }
     public RelayCommand OpenTasksCommand { get; }
+    public RelayCommand OpenProjectsCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
     public RelayCommand ToggleCompactCommand { get; }
     public RelayCommand SwitchToSessionCommand { get; }
 
     public event EventHandler? OpenHistoryRequested;
     public event EventHandler? OpenTasksRequested;
+    public event EventHandler? OpenProjectsRequested;
     public event EventHandler? OpenSettingsRequested;
     public event EventHandler? FinishNoteRequested;
     public event EventHandler<WorkSession>? RecoveryNeeded;

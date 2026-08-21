@@ -34,6 +34,12 @@ public partial class MainWindow : Window
             window.ShowDialog();
         };
 
+        _viewModel.OpenProjectsRequested += (_, _) =>
+        {
+            var window = new ProjectsWindow(services) { Owner = this };
+            window.ShowDialog();
+        };
+
         _viewModel.OpenSettingsRequested += (_, _) =>
         {
             var window = new SettingsWindow(services) { Owner = this };

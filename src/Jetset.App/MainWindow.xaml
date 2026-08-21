@@ -175,6 +175,8 @@
         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
           <Button Content="Tasks" Command="{Binding OpenTasksCommand}"
                   Style="{DynamicResource LinkButton}" Margin="0,0,16,0" />
+          <Button Content="Projects" Command="{Binding OpenProjectsCommand}"
+                  Style="{DynamicResource LinkButton}" Margin="0,0,16,0" />
           <Button Content="History" Command="{Binding OpenHistoryCommand}"
                   Style="{DynamicResource LinkButton}" Margin="0,0,16,0" />
           <Button Content="Settings" Command="{Binding OpenSettingsCommand}"

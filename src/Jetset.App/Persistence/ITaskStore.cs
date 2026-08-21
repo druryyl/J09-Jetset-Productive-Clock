@@ -8,7 +8,13 @@ public interface ITaskStore
 
     IReadOnlyList<WorkTask> List();
 
+    IReadOnlyList<WorkTask> ListByProject(Guid? projectId);
+
     IReadOnlyList<WorkTask> Search(string query);
+
+    int CountByProject(Guid projectId);
+
+    void UnassignAllFromProject(Guid projectId);
 
     void Insert(WorkTask task);
 

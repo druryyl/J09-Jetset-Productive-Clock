@@ -9,13 +9,17 @@ public sealed class TaskListItemViewModel : ObservableObject
     private string _title;
     private TaskStatus _status;
     private string _notes;
+    private Guid? _projectId;
+    private string? _projectName;
 
-    public TaskListItemViewModel(WorkTask task)
+    public TaskListItemViewModel(WorkTask task, string? projectName = null)
     {
         Task = task;
         _title = task.Title;
         _status = task.Status;
         _notes = task.Notes ?? string.Empty;
+        _projectId = task.ProjectId;
+        _projectName = projectName;
     }
 
     public WorkTask Task { get; }
@@ -45,6 +49,37 @@ public sealed class TaskListItemViewModel : ObservableObject
         get => _notes;
         set => SetProperty(ref _notes, value);
     }
+
+    public Guid? ProjectId
+    {
+        get => _projectId;
+        set
+        {
+            if (SetProperty(ref _projectId, value))
+            {
+                OnPropertyChanged(nameof(HasProject));
+                OnPropertyChanged(nameof(ProjectDisplay));
+            }
+        }
+    }
+
+    public string? ProjectName
+    {
+        get => _projectName;
+        set
+        {
+            if (SetProperty(ref _projectName, value))
+            {
+                OnPropertyChanged(nameof(HasProject));
+                OnPropertyChanged(nameof(ProjectDisplay));
+            }
+        }
+    }
+
+    public bool HasProject => ProjectId is not null;
+
+    public string ProjectDisplay =>
+        string.IsNullOrWhiteSpace(ProjectName) ? string.Empty : ProjectName;
 
     public string StatusText => Status.ToString();
 }

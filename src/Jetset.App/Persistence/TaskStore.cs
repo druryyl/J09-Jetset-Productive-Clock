@@ -52,6 +52,44 @@ public sealed class TaskStore : ITaskStore
         return results;
     }
 
+    public IReadOnlyList<WorkTask> ListByProject(Guid? projectId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        if (projectId is null)
+        {
+            command.CommandText =
+                """
+                SELECT Id, Title, Status, Notes, CurrentStatus, LastProgress, NextAction, Blocker,
+                       ProjectId, MilestoneId, CreatedAt, UpdatedAt, LastWorkedAt
+                FROM "Task"
+                WHERE ProjectId IS NULL
+                ORDER BY UpdatedAt DESC;
+                """;
+        }
+        else
+        {
+            command.CommandText =
+                """
+                SELECT Id, Title, Status, Notes, CurrentStatus, LastProgress, NextAction, Blocker,
+                       ProjectId, MilestoneId, CreatedAt, UpdatedAt, LastWorkedAt
+                FROM "Task"
+                WHERE ProjectId = @projectId
+                ORDER BY UpdatedAt DESC;
+                """;
+            command.Parameters.AddWithValue("@projectId", projectId.Value.ToString());
+        }
+
+        var results = new List<WorkTask>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadTask(reader));
+        }
+
+        return results;
+    }
+
     public IReadOnlyList<WorkTask> Search(string query)
     {
         using var connection = _factory.Create();
@@ -74,6 +112,34 @@ public sealed class TaskStore : ITaskStore
         }
 
         return results;
+    }
+
+    public int CountByProject(Guid projectId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText = """SELECT COUNT(*) FROM "Task" WHERE ProjectId = @projectId;""";
+        command.Parameters.AddWithValue("@projectId", projectId.ToString());
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
+    public void UnassignAllFromProject(Guid projectId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            UPDATE "Task" SET
+                ProjectId = NULL,
+                MilestoneId = NULL,
+                UpdatedAt = @updatedAt
+            WHERE ProjectId = @projectId;
+            """;
+        command.Parameters.AddWithValue("@projectId", projectId.ToString());
+        command.Parameters.AddWithValue(
+            "@updatedAt",
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
     }
 
     public void Insert(WorkTask task)

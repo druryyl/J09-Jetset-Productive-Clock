@@ -77,6 +77,8 @@ public sealed class TasksViewModel : ObservableObject
     private MilestoneAssignOption? _selectedMilestoneOption;
     private TaskStatus _loadedStatus;
     private string? _message;
+    private string _latestSnapshotSummary = string.Empty;
+    private string _focusTimeText = string.Empty;
     private bool _suppressFilterReload;
     private bool _suppressMilestoneRebuild;
 
@@ -84,6 +86,7 @@ public sealed class TasksViewModel : ObservableObject
     {
         _services = services;
         Items = new ObservableCollection<TaskListItemViewModel>();
+        Snapshots = new ObservableCollection<ContextSnapshotItemViewModel>();
         FilterOptions = new ObservableCollection<ProjectFilterOption>();
         StatusFilterOptions = new ObservableCollection<StatusFilterOption>
         {
@@ -102,6 +105,11 @@ public sealed class TasksViewModel : ObservableObject
         SaveCommand = new RelayCommand(Save, () => Selected is not null);
         DeleteCommand = new RelayCommand(Delete, () => Selected is not null);
         ReopenCommand = new RelayCommand(Reopen, () => Selected?.CanReopen == true);
+        CaptureSnapshotCommand = new RelayCommand(CaptureSnapshot, () => Selected is not null);
+        StartWorkCommand = new RelayCommand(BeginWork, CanExecuteStartWork);
+        StartWorkForTaskCommand = new RelayCommand(BeginWorkForTask);
+        ResumeWorkCommand = new RelayCommand(ResumeWork, CanExecuteResumeWork);
+        ResumeWorkForTaskCommand = new RelayCommand(ResumeWorkForTask);
         RefreshCommand = new RelayCommand(Load);
 
         RebuildProjectOptions();
@@ -111,6 +119,8 @@ public sealed class TasksViewModel : ObservableObject
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; }
+
+    public ObservableCollection<ContextSnapshotItemViewModel> Snapshots { get; }
 
     public ObservableCollection<ProjectFilterOption> FilterOptions { get; }
 
@@ -126,7 +136,16 @@ public sealed class TasksViewModel : ObservableObject
     public RelayCommand SaveCommand { get; }
     public RelayCommand DeleteCommand { get; }
     public RelayCommand ReopenCommand { get; }
+    public RelayCommand CaptureSnapshotCommand { get; }
+    public RelayCommand StartWorkCommand { get; }
+    public RelayCommand StartWorkForTaskCommand { get; }
+    public RelayCommand ResumeWorkCommand { get; }
+    public RelayCommand ResumeWorkForTaskCommand { get; }
     public RelayCommand RefreshCommand { get; }
+
+    public event EventHandler? WorkStarted;
+
+    public event EventHandler<ContextCaptureRequest>? ContextCaptureRequested;
 
     public TaskListItemViewModel? Selected
     {
@@ -138,24 +157,59 @@ public sealed class TasksViewModel : ObservableObject
                 _loadedStatus = value?.Status ?? TaskStatus.Active;
                 OnPropertyChanged(nameof(HasSelection));
                 OnPropertyChanged(nameof(CanReopenSelected));
+                OnPropertyChanged(nameof(CanStartWorkSelected));
+                OnPropertyChanged(nameof(CanResumeWorkSelected));
                 SaveCommand.RaiseCanExecuteChanged();
                 DeleteCommand.RaiseCanExecuteChanged();
                 ReopenCommand.RaiseCanExecuteChanged();
+                CaptureSnapshotCommand.RaiseCanExecuteChanged();
+                StartWorkCommand.RaiseCanExecuteChanged();
+                ResumeWorkCommand.RaiseCanExecuteChanged();
                 SyncSelectedProjectOption();
                 RebuildMilestoneOptions(SelectedProjectOption?.ProjectId);
                 SyncSelectedMilestoneOption();
                 OnPropertyChanged(nameof(CanAssignMilestone));
+                LoadSnapshots();
+                LoadFocusTime();
             }
         }
     }
+
+    public string FocusTimeText
+    {
+        get => _focusTimeText;
+        private set => SetProperty(ref _focusTimeText, value);
+    }
+
+    public bool HasFocusTime => !string.IsNullOrWhiteSpace(FocusTimeText);
 
     public bool HasSelection => Selected is not null;
 
     public bool HasItems => Items.Count > 0;
 
+    public bool HasSnapshots => Snapshots.Count > 0;
+
+    public bool HasLatestSnapshot => !string.IsNullOrWhiteSpace(LatestSnapshotSummary);
+
+    public string LatestSnapshotSummary
+    {
+        get => _latestSnapshotSummary;
+        private set
+        {
+            if (SetProperty(ref _latestSnapshotSummary, value))
+            {
+                OnPropertyChanged(nameof(HasLatestSnapshot));
+            }
+        }
+    }
+
     public bool CanAssignMilestone => SelectedProjectOption?.ProjectId is not null;
 
     public bool CanReopenSelected => Selected?.CanReopen == true;
+
+    public bool CanResumeWorkSelected => Selected?.CanResumeWork == true;
+
+    public bool CanStartWorkSelected => Selected?.CanStartWork == true;
 
     public string SearchText
     {
@@ -441,11 +495,149 @@ public sealed class TasksViewModel : ObservableObject
             Items.Add(new TaskListItemViewModel(task, projectName, milestoneName));
         }
 
+        ApplyWorkSessionState();
+
         Selected = selectedId is { } id
             ? Items.FirstOrDefault(i => i.Id == id)
             : null;
 
         OnPropertyChanged(nameof(HasItems));
+        StartWorkCommand.RaiseCanExecuteChanged();
+        ResumeWorkCommand.RaiseCanExecuteChanged();
+    }
+
+    private void ApplyWorkSessionState()
+    {
+        var execution = _services.WorkExecution;
+        foreach (var item in Items)
+        {
+            item.HasPausedSession = execution.HasPausedSession(item.Id);
+            item.IsActiveSession = execution.IsTaskFocused(item.Id);
+        }
+    }
+
+    private bool CanExecuteStartWork() => Selected?.CanStartWork == true;
+
+    private void BeginWork()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        BeginWorkForTask(Selected.Id);
+    }
+
+    private void BeginWorkForTask(object? parameter)
+    {
+        if (!TryParseTaskId(parameter, out var taskId))
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            if (!TryPromptLeavingContext(out var leavingContext))
+            {
+                return;
+            }
+
+            _services.WorkExecution.StartWork(taskId, leavingContext: leavingContext);
+            Load();
+            WorkStarted?.Invoke(this, EventArgs.Empty);
+            Message = "Work started.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private bool CanExecuteResumeWork() => Selected?.CanResumeWork == true;
+
+    private void ResumeWork()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        ResumeWorkForTask(Selected.Id);
+    }
+
+    private void ResumeWorkForTask(object? parameter)
+    {
+        if (!TryParseTaskId(parameter, out var taskId))
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            if (!TryPromptLeavingContext(out var leavingContext))
+            {
+                return;
+            }
+
+            _services.WorkExecution.ResumeWork(taskId, leavingContext);
+            Load();
+            WorkStarted?.Invoke(this, EventArgs.Empty);
+            Message = "Work resumed.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private bool TryPromptLeavingContext(out WorkingContext? leavingContext)
+    {
+        leavingContext = null;
+        var task = _services.WorkExecution.GetLeavingTask();
+        if (task is null)
+        {
+            return true;
+        }
+
+        var request = new ContextCaptureRequest
+        {
+            Task = task,
+            Reason = ContextCaptureReason.Switch
+        };
+        ContextCaptureRequested?.Invoke(this, request);
+
+        if (request.Result == ContextCaptureResult.Cancelled)
+        {
+            return false;
+        }
+
+        if (request.Result == ContextCaptureResult.Saved)
+        {
+            leavingContext = request.Context;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseTaskId(object? parameter, out Guid taskId)
+    {
+        switch (parameter)
+        {
+            case Guid id:
+                taskId = id;
+                return true;
+            case TaskListItemViewModel item:
+                taskId = item.Id;
+                return true;
+            case string text when Guid.TryParse(text, out var parsed):
+                taskId = parsed;
+                return true;
+            default:
+                taskId = Guid.Empty;
+                return false;
+        }
     }
 
     private void AddTask()
@@ -471,12 +663,52 @@ public sealed class TasksViewModel : ObservableObject
 
     private void Save()
     {
+        if (TrySaveSelected(out _, out var error))
+        {
+            Message = "Task updated.";
+        }
+        else if (error is not null)
+        {
+            Message = error;
+        }
+    }
+
+    private void CaptureSnapshot()
+    {
         if (Selected is null)
         {
             return;
         }
 
         Message = null;
+        if (!TrySaveSelected(out var taskId, out var saveError))
+        {
+            Message = saveError ?? "Could not save task before capturing snapshot.";
+            return;
+        }
+
+        try
+        {
+            _services.ContextSnapshots.Capture(taskId);
+            LoadSnapshots();
+            Message = "Snapshot captured.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private bool TrySaveSelected(out Guid taskId, out string? error)
+    {
+        taskId = Guid.Empty;
+        error = null;
+
+        if (Selected is null)
+        {
+            return false;
+        }
+
         try
         {
             var projectId = SelectedProjectOption?.ProjectId;
@@ -488,11 +720,6 @@ public sealed class TasksViewModel : ObservableObject
                 Id = Selected.Id,
                 Title = Selected.Title,
                 Status = Selected.Status,
-                Notes = Selected.Notes,
-                CurrentStatus = Selected.Task.CurrentStatus,
-                LastProgress = Selected.Task.LastProgress,
-                NextAction = Selected.Task.NextAction,
-                Blocker = Selected.Task.Blocker,
                 ProjectId = projectId,
                 MilestoneId = milestoneId,
                 CreatedAt = Selected.Task.CreatedAt,
@@ -501,20 +728,74 @@ public sealed class TasksViewModel : ObservableObject
             };
 
             var result = _services.Tasks.Update(updated);
+            result = _services.Tasks.UpdateContext(
+                result.Id,
+                Selected.CurrentStatus,
+                Selected.LastProgress,
+                Selected.NextAction,
+                Selected.Blocker,
+                Selected.Notes);
 
             if (newStatus != _loadedStatus)
             {
                 result = _services.Tasks.TransitionStatus(result.Id, newStatus);
             }
 
+            taskId = result.Id;
             Load();
             Selected = Items.FirstOrDefault(i => i.Id == result.Id);
-            Message = "Task updated.";
+            return true;
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            error = ex.Message;
+            return false;
         }
+    }
+
+    private void LoadSnapshots()
+    {
+        Snapshots.Clear();
+        LatestSnapshotSummary = string.Empty;
+
+        if (Selected is null)
+        {
+            OnPropertyChanged(nameof(HasSnapshots));
+            return;
+        }
+
+        var snapshots = _services.ContextSnapshots.ListByTask(Selected.Id);
+        foreach (var snapshot in snapshots)
+        {
+            Snapshots.Add(new ContextSnapshotItemViewModel(snapshot));
+        }
+
+        var latest = snapshots.FirstOrDefault();
+        if (latest is not null)
+        {
+            var item = new ContextSnapshotItemViewModel(latest);
+            LatestSnapshotSummary = string.IsNullOrWhiteSpace(item.Summary)
+                ? item.CreatedAtDisplay
+                : $"{item.CreatedAtDisplay} — {item.Summary}";
+        }
+
+        OnPropertyChanged(nameof(HasSnapshots));
+    }
+
+    private void LoadFocusTime()
+    {
+        if (Selected is null)
+        {
+            FocusTimeText = string.Empty;
+            OnPropertyChanged(nameof(HasFocusTime));
+            return;
+        }
+
+        var focusTime = _services.Analytics.GetFocusTimeByTask(Selected.Id);
+        FocusTimeText = focusTime > TimeSpan.Zero
+            ? DurationFormatter.FormatFriendly(focusTime)
+            : string.Empty;
+        OnPropertyChanged(nameof(HasFocusTime));
     }
 
     private void Reopen()

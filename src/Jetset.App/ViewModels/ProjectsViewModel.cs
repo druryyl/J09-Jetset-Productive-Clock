@@ -18,6 +18,8 @@ public sealed class ProjectsViewModel : ObservableObject
     private string _quickAddTaskTitle = string.Empty;
     private string _quickAddMilestoneName = string.Empty;
     private string? _message;
+    private string _momentumRangeText = string.Empty;
+    private string _momentumSummaryText = string.Empty;
 
     public ProjectsViewModel(AppServices services)
     {
@@ -25,6 +27,7 @@ public sealed class ProjectsViewModel : ObservableObject
         Items = new ObservableCollection<ProjectListItemViewModel>();
         ProjectTasks = new ObservableCollection<TaskListItemViewModel>();
         Milestones = new ObservableCollection<MilestoneListItemViewModel>();
+        MomentumWeeks = new ObservableCollection<ProjectMomentumWeekItemViewModel>();
 
         AddProjectCommand = new RelayCommand(AddProject, CanAddProject);
         SaveCommand = new RelayCommand(Save, () => Selected is not null);
@@ -35,6 +38,8 @@ public sealed class ProjectsViewModel : ObservableObject
         DeleteMilestoneCommand = new RelayCommand(DeleteMilestone, () => SelectedMilestone is not null);
         MoveMilestoneUpCommand = new RelayCommand(MoveMilestoneUp, CanMoveMilestoneUp);
         MoveMilestoneDownCommand = new RelayCommand(MoveMilestoneDown, CanMoveMilestoneDown);
+        StartWorkForTaskCommand = new RelayCommand(BeginWorkForTask);
+        ResumeWorkForTaskCommand = new RelayCommand(ResumeWorkForTask);
         RefreshCommand = new RelayCommand(Load);
 
         Load();
@@ -46,6 +51,8 @@ public sealed class ProjectsViewModel : ObservableObject
 
     public ObservableCollection<MilestoneListItemViewModel> Milestones { get; }
 
+    public ObservableCollection<ProjectMomentumWeekItemViewModel> MomentumWeeks { get; }
+
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand DeleteCommand { get; }
@@ -55,7 +62,13 @@ public sealed class ProjectsViewModel : ObservableObject
     public RelayCommand DeleteMilestoneCommand { get; }
     public RelayCommand MoveMilestoneUpCommand { get; }
     public RelayCommand MoveMilestoneDownCommand { get; }
+    public RelayCommand StartWorkForTaskCommand { get; }
+    public RelayCommand ResumeWorkForTaskCommand { get; }
     public RelayCommand RefreshCommand { get; }
+
+    public event EventHandler? WorkStarted;
+
+    public event EventHandler<ContextCaptureRequest>? ContextCaptureRequested;
 
     public ProjectListItemViewModel? Selected
     {
@@ -71,6 +84,7 @@ public sealed class ProjectsViewModel : ObservableObject
                 AddMilestoneCommand.RaiseCanExecuteChanged();
                 LoadMilestones();
                 LoadProjectTasks();
+                RefreshMomentum();
             }
         }
     }
@@ -100,6 +114,20 @@ public sealed class ProjectsViewModel : ObservableObject
     public bool HasProjectTasks => ProjectTasks.Count > 0;
 
     public bool HasMilestones => Milestones.Count > 0;
+
+    public bool HasMomentumWeeks => MomentumWeeks.Count > 0;
+
+    public string MomentumRangeText
+    {
+        get => _momentumRangeText;
+        private set => SetProperty(ref _momentumRangeText, value);
+    }
+
+    public string MomentumSummaryText
+    {
+        get => _momentumSummaryText;
+        private set => SetProperty(ref _momentumSummaryText, value);
+    }
 
     public string QuickAddName
     {
@@ -244,7 +272,148 @@ public sealed class ProjectsViewModel : ObservableObject
             ProjectTasks.Add(new TaskListItemViewModel(task, Selected.Name, milestoneName));
         }
 
+        ApplyWorkSessionState();
+
         OnPropertyChanged(nameof(HasProjectTasks));
+    }
+
+    private void RefreshMomentum()
+    {
+        MomentumWeeks.Clear();
+        MomentumRangeText = string.Empty;
+        MomentumSummaryText = string.Empty;
+        OnPropertyChanged(nameof(HasMomentumWeeks));
+
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var momentum = ProjectMomentumPresenter.Load(_services, Selected.Id);
+        if (momentum is null)
+        {
+            return;
+        }
+
+        MomentumRangeText = ProjectMomentumPresenter.FormatRangeText(momentum.StartDate, momentum.EndDate);
+        MomentumSummaryText = ProjectMomentumPresenter.FormatSummaryText(momentum);
+
+        foreach (var week in ProjectMomentumPresenter.MapWeeks(momentum))
+        {
+            MomentumWeeks.Add(week);
+        }
+
+        OnPropertyChanged(nameof(HasMomentumWeeks));
+    }
+
+    private void ApplyWorkSessionState()
+    {
+        var execution = _services.WorkExecution;
+        foreach (var item in ProjectTasks)
+        {
+            item.HasPausedSession = execution.HasPausedSession(item.Id);
+            item.IsActiveSession = execution.IsTaskFocused(item.Id);
+        }
+    }
+
+    private void BeginWorkForTask(object? parameter)
+    {
+        if (!TryParseTaskId(parameter, out var taskId))
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            if (!TryPromptLeavingContext(out var leavingContext))
+            {
+                return;
+            }
+
+            _services.WorkExecution.StartWork(taskId, leavingContext: leavingContext);
+            LoadProjectTasks();
+            WorkStarted?.Invoke(this, EventArgs.Empty);
+            Message = "Work started.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private void ResumeWorkForTask(object? parameter)
+    {
+        if (!TryParseTaskId(parameter, out var taskId))
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            if (!TryPromptLeavingContext(out var leavingContext))
+            {
+                return;
+            }
+
+            _services.WorkExecution.ResumeWork(taskId, leavingContext);
+            LoadProjectTasks();
+            WorkStarted?.Invoke(this, EventArgs.Empty);
+            Message = "Work resumed.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private bool TryPromptLeavingContext(out WorkingContext? leavingContext)
+    {
+        leavingContext = null;
+        var task = _services.WorkExecution.GetLeavingTask();
+        if (task is null)
+        {
+            return true;
+        }
+
+        var request = new ContextCaptureRequest
+        {
+            Task = task,
+            Reason = ContextCaptureReason.Switch
+        };
+        ContextCaptureRequested?.Invoke(this, request);
+
+        if (request.Result == ContextCaptureResult.Cancelled)
+        {
+            return false;
+        }
+
+        if (request.Result == ContextCaptureResult.Saved)
+        {
+            leavingContext = request.Context;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseTaskId(object? parameter, out Guid taskId)
+    {
+        switch (parameter)
+        {
+            case Guid id:
+                taskId = id;
+                return true;
+            case TaskListItemViewModel item:
+                taskId = item.Id;
+                return true;
+            case string text when Guid.TryParse(text, out var parsed):
+                taskId = parsed;
+                return true;
+            default:
+                taskId = Guid.Empty;
+                return false;
+        }
     }
 
     private void AddProject()

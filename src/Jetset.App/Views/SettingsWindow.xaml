@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Settings"
         Width="360"
-        Height="520"
+        Height="620"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource WindowBackgroundBrush}"
         Foreground="{DynamicResource TextPrimaryBrush}"
@@ -32,6 +32,28 @@
               IsChecked="{Binding AutoResumeAfterIdle}"
               IsEnabled="{Binding IdleOptionsEnabled}"
               Margin="24,0,0,16" />
+
+    <TextBlock Text="Keyboard shortcuts" FontWeight="SemiBold" Margin="0,0,0,8" />
+    <ItemsControl ItemsSource="{Binding Shortcuts}" Margin="0,0,0,16">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate>
+          <Grid Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="100" />
+              <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0"
+                       Text="{Binding Shortcut}"
+                       FontFamily="{DynamicResource MonospaceFont}"
+                       FontWeight="SemiBold" />
+            <TextBlock Grid.Column="1"
+                       Text="{Binding Action}"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextSecondaryBrush}" />
+          </Grid>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
 
     <StackPanel Orientation="Horizontal">
       <Button Content="Save" Command="{Binding SaveCommand}" Style="{DynamicResource PrimaryButton}" Margin="0,0,8,0" />

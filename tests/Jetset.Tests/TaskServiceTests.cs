@@ -110,6 +110,80 @@ public class TaskServiceTests : IDisposable
     }
 
     [Fact]
+    public void UpdateContext_PersistsAllFields()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, store, _, _, setNow) = CreateHarness(start);
+        var task = service.Create("Context task");
+        setNow(start.AddMinutes(3));
+
+        var updated = service.UpdateContext(
+            task.Id,
+            "In review",
+            "Finished draft",
+            "Send to team",
+            "Waiting on feedback",
+            "Extra detail");
+
+        Assert.Equal("In review", updated.CurrentStatus);
+        Assert.Equal("Finished draft", updated.LastProgress);
+        Assert.Equal("Send to team", updated.NextAction);
+        Assert.Equal("Waiting on feedback", updated.Blocker);
+        Assert.Equal("Extra detail", updated.Notes);
+        Assert.Equal("Context task", updated.Title);
+        Assert.Equal(TaskStatus.Active, updated.Status);
+        Assert.Equal(start.AddMinutes(3), updated.UpdatedAt);
+
+        var loaded = store.Get(task.Id);
+        Assert.NotNull(loaded);
+        Assert.Equal("Send to team", loaded!.NextAction);
+    }
+
+    [Fact]
+    public void UpdateContext_NormalizesWhitespaceToNull()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Empty context");
+
+        var updated = service.UpdateContext(task.Id, "  ", null, "", "   ", "\t");
+
+        Assert.Null(updated.CurrentStatus);
+        Assert.Null(updated.LastProgress);
+        Assert.Null(updated.NextAction);
+        Assert.Null(updated.Blocker);
+        Assert.Null(updated.Notes);
+    }
+
+    [Fact]
+    public void UpdateContext_DoesNotChangeTitleOrStatus()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var task = service.Create("Stable fields");
+        service.TransitionStatus(task.Id, TaskStatus.Blocked);
+
+        var updated = service.UpdateContext(
+            task.Id,
+            "Blocked on API",
+            null,
+            "Retry tomorrow",
+            "Vendor outage",
+            null);
+
+        Assert.Equal("Stable fields", updated.Title);
+        Assert.Equal(TaskStatus.Blocked, updated.Status);
+        Assert.Equal("Retry tomorrow", updated.NextAction);
+    }
+
+    [Fact]
+    public void UpdateContext_WithMissingTask_Throws()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            service.UpdateContext(Guid.NewGuid(), "Status", null, null, null, null));
+    }
+
+    [Fact]
     public void Update_DoesNotChangeStatus()
     {
         var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
@@ -296,6 +370,68 @@ public class TaskServiceTests : IDisposable
 
         Assert.Empty(service.Search(""));
         Assert.Empty(service.Search("   "));
+    }
+
+    [Fact]
+    public void Search_MatchesContextFields()
+    {
+        var (service, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+
+        var task = service.Create("Opaque title");
+        service.UpdateContext(
+            task.Id,
+            currentStatus: "Waiting on review",
+            lastProgress: null,
+            nextAction: "Ship the patch",
+            blocker: "CI failing",
+            notes: null);
+
+        Assert.Single(service.Search("review"), t => t.Id == task.Id);
+        Assert.Single(service.Search("patch"), t => t.Id == task.Id);
+        Assert.Single(service.Search("CI"), t => t.Id == task.Id);
+    }
+
+    [Fact]
+    public void GetTaskWithContext_ResolvesProjectAndMilestoneNames()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, projectStore, milestoneStore, _) = CreateHarness(start);
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "Jetset",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        projectStore.Insert(project);
+
+        var milestone = new Milestone
+        {
+            Id = Guid.NewGuid(),
+            ProjectId = project.Id,
+            Name = "V2 launch",
+            SortOrder = 0,
+            CreatedAt = start
+        };
+        milestoneStore.Insert(milestone);
+
+        var task = service.Create("Review PR", project.Id);
+        service.AssignToMilestone(task.Id, milestone.Id);
+        service.UpdateContext(
+            task.Id,
+            currentStatus: "In review",
+            lastProgress: "Opened PR",
+            nextAction: "Merge",
+            blocker: null,
+            notes: null);
+
+        var withContext = service.GetTaskWithContext(task.Id);
+
+        Assert.NotNull(withContext);
+        Assert.Equal("Review PR", withContext!.Task.Title);
+        Assert.Equal("In review", withContext.Task.CurrentStatus);
+        Assert.Equal("Jetset", withContext.ProjectName);
+        Assert.Equal("V2 launch", withContext.MilestoneName);
     }
 
     [Fact]

@@ -63,6 +63,34 @@ public sealed class TaskService
 
     public WorkTask? Get(Guid id) => _store.Get(id);
 
+    public TaskWithContext? GetTaskWithContext(Guid id)
+    {
+        var task = _store.Get(id);
+        if (task is null)
+        {
+            return null;
+        }
+
+        string? projectName = null;
+        if (task.ProjectId is { } projectId)
+        {
+            projectName = _projectStore?.Get(projectId)?.Name;
+        }
+
+        string? milestoneName = null;
+        if (task.MilestoneId is { } milestoneId)
+        {
+            milestoneName = _milestoneStore?.Get(milestoneId)?.Name;
+        }
+
+        return new TaskWithContext
+        {
+            Task = task,
+            ProjectName = projectName,
+            MilestoneName = milestoneName
+        };
+    }
+
     public IReadOnlyList<WorkTask> List() => _store.List();
 
     public IReadOnlyList<WorkTask> ListByProject(Guid? projectId) =>
@@ -148,6 +176,38 @@ public sealed class TaskService
         return updated;
     }
 
+    public WorkTask UpdateContext(
+        Guid taskId,
+        string? currentStatus,
+        string? lastProgress,
+        string? nextAction,
+        string? blocker,
+        string? notes)
+    {
+        var existing = _store.Get(taskId)
+            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+
+        var updated = new WorkTask
+        {
+            Id = existing.Id,
+            Title = existing.Title,
+            Status = existing.Status,
+            Notes = NormalizeContextField(notes),
+            CurrentStatus = NormalizeContextField(currentStatus),
+            LastProgress = NormalizeContextField(lastProgress),
+            NextAction = NormalizeContextField(nextAction),
+            Blocker = NormalizeContextField(blocker),
+            ProjectId = existing.ProjectId,
+            MilestoneId = existing.MilestoneId,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = _clock(),
+            LastWorkedAt = existing.LastWorkedAt
+        };
+
+        _store.Update(updated);
+        return updated;
+    }
+
     public WorkTask Update(WorkTask task)
     {
         ArgumentNullException.ThrowIfNull(task);
@@ -185,11 +245,11 @@ public sealed class TaskService
             Id = existing.Id,
             Title = trimmed,
             Status = existing.Status,
-            Notes = string.IsNullOrWhiteSpace(task.Notes) ? null : task.Notes.Trim(),
-            CurrentStatus = task.CurrentStatus,
-            LastProgress = task.LastProgress,
-            NextAction = task.NextAction,
-            Blocker = task.Blocker,
+            Notes = NormalizeContextField(task.Notes),
+            CurrentStatus = NormalizeContextField(task.CurrentStatus),
+            LastProgress = NormalizeContextField(task.LastProgress),
+            NextAction = NormalizeContextField(task.NextAction),
+            Blocker = NormalizeContextField(task.Blocker),
             ProjectId = task.ProjectId,
             MilestoneId = milestoneId,
             CreatedAt = existing.CreatedAt,
@@ -238,6 +298,33 @@ public sealed class TaskService
         return updated;
     }
 
+    public WorkTask RecordWorkStarted(Guid taskId)
+    {
+        var existing = _store.Get(taskId)
+            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+
+        var now = _clock();
+        var updated = new WorkTask
+        {
+            Id = existing.Id,
+            Title = existing.Title,
+            Status = existing.Status,
+            Notes = existing.Notes,
+            CurrentStatus = existing.CurrentStatus,
+            LastProgress = existing.LastProgress,
+            NextAction = existing.NextAction,
+            Blocker = existing.Blocker,
+            ProjectId = existing.ProjectId,
+            MilestoneId = existing.MilestoneId,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = now,
+            LastWorkedAt = now
+        };
+
+        _store.Update(updated);
+        return updated;
+    }
+
     public IReadOnlyList<WorkTask> ListActiveWork() =>
         _store.ListByStatuses([TaskStatus.Active, TaskStatus.Blocked]);
 
@@ -248,6 +335,9 @@ public sealed class TaskService
     }
 
     public void Delete(Guid id) => _store.Delete(id);
+
+    private static string? NormalizeContextField(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private void EnsureProjectExists(Guid projectId)
     {

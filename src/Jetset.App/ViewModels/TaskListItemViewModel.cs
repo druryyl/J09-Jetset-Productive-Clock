@@ -9,10 +9,16 @@ public sealed class TaskListItemViewModel : ObservableObject
     private string _title;
     private TaskStatus _status;
     private string _notes;
+    private string _currentStatus;
+    private string _lastProgress;
+    private string _nextAction;
+    private string _blocker;
     private Guid? _projectId;
     private string? _projectName;
     private Guid? _milestoneId;
     private string? _milestoneName;
+    private bool _hasPausedSession;
+    private bool _isActiveSession;
 
     public TaskListItemViewModel(WorkTask task, string? projectName = null, string? milestoneName = null)
     {
@@ -20,6 +26,10 @@ public sealed class TaskListItemViewModel : ObservableObject
         _title = task.Title;
         _status = task.Status;
         _notes = task.Notes ?? string.Empty;
+        _currentStatus = task.CurrentStatus ?? string.Empty;
+        _lastProgress = task.LastProgress ?? string.Empty;
+        _nextAction = task.NextAction ?? string.Empty;
+        _blocker = task.Blocker ?? string.Empty;
         _projectId = task.ProjectId;
         _projectName = projectName;
         _milestoneId = task.MilestoneId;
@@ -54,6 +64,96 @@ public sealed class TaskListItemViewModel : ObservableObject
     {
         get => _notes;
         set => SetProperty(ref _notes, value);
+    }
+
+    public string CurrentStatus
+    {
+        get => _currentStatus;
+        set
+        {
+            if (SetProperty(ref _currentStatus, value))
+            {
+                RaiseContextSummaryChanged();
+            }
+        }
+    }
+
+    public string LastProgress
+    {
+        get => _lastProgress;
+        set
+        {
+            if (SetProperty(ref _lastProgress, value))
+            {
+                RaiseContextSummaryChanged();
+            }
+        }
+    }
+
+    public string NextAction
+    {
+        get => _nextAction;
+        set
+        {
+            if (SetProperty(ref _nextAction, value))
+            {
+                RaiseContextSummaryChanged();
+            }
+        }
+    }
+
+    public string Blocker
+    {
+        get => _blocker;
+        set
+        {
+            if (SetProperty(ref _blocker, value))
+            {
+                OnPropertyChanged(nameof(HasBlocker));
+                OnPropertyChanged(nameof(BlockerDisplay));
+            }
+        }
+    }
+
+    public bool HasContextSummary => !string.IsNullOrWhiteSpace(ContextSummary);
+
+    public bool HasCurrentStatusDisplay => !string.IsNullOrWhiteSpace(_currentStatus);
+
+    public bool HasLastProgressDisplay => !string.IsNullOrWhiteSpace(_lastProgress);
+
+    public bool HasNextActionDisplay => !string.IsNullOrWhiteSpace(_nextAction);
+
+    public bool HasBlocker => !string.IsNullOrWhiteSpace(Blocker);
+
+    public string ContextSummary
+    {
+        get
+        {
+            if (!string.IsNullOrWhiteSpace(_nextAction))
+            {
+                return _nextAction.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(_currentStatus))
+            {
+                return _currentStatus.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(_lastProgress))
+            {
+                return _lastProgress.Trim();
+            }
+
+            return string.Empty;
+        }
+    }
+
+    public string BlockerDisplay => HasBlocker ? Blocker.Trim() : string.Empty;
+
+    private void RaiseContextSummaryChanged()
+    {
+        OnPropertyChanged(nameof(ContextSummary));
+        OnPropertyChanged(nameof(HasContextSummary));
     }
 
     public Guid? ProjectId
@@ -123,4 +223,37 @@ public sealed class TaskListItemViewModel : ObservableObject
     public bool IsTerminal => TaskStatusRules.IsTerminal(Status);
 
     public bool CanReopen => IsTerminal;
+
+    public bool HasPausedSession
+    {
+        get => _hasPausedSession;
+        set
+        {
+            if (SetProperty(ref _hasPausedSession, value))
+            {
+                OnPropertyChanged(nameof(CanStartWork));
+                OnPropertyChanged(nameof(CanResumeWork));
+            }
+        }
+    }
+
+    public bool IsActiveSession
+    {
+        get => _isActiveSession;
+        set
+        {
+            if (SetProperty(ref _isActiveSession, value))
+            {
+                OnPropertyChanged(nameof(CanStartWork));
+                OnPropertyChanged(nameof(CanResumeWork));
+                OnPropertyChanged(nameof(IsWorkActive));
+            }
+        }
+    }
+
+    public bool CanStartWork => !IsTerminal && !IsActiveSession && !HasPausedSession;
+
+    public bool CanResumeWork => !IsTerminal && HasPausedSession && !IsActiveSession;
+
+    public bool IsWorkActive => IsActiveSession;
 }

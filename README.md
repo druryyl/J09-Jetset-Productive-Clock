@@ -1,8 +1,8 @@
 # Jetset
 
-Jetset is a lightweight personal Windows desktop utility: a visible clock, stopwatch or countdown timer, and a simple work-session tracker for today.
+Jetset is a personal productivity workspace for Windows: a visible clock, focused work sessions, task and project planning, context preservation, and productivity analytics — all local, with no accounts or cloud sync.
 
-It helps you keep time in view, measure how long tasks actually take, pause without counting idle time, and review today’s productive total — without accounts, cloud sync, or team time-tracking features.
+It helps you keep time in view, measure how long tasks actually take, pause without counting idle time, preserve working context across switches, and review trends in your focused work.
 
 ## Prerequisites
 
@@ -48,33 +48,66 @@ SQLite database:
 
 `%LocalAppData%\Jetset\jetset.db`
 
+Before schema upgrades, Jetset creates a timestamped backup alongside the database file (for example `jetset.db.backup-20260822120000`).
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+N` | Start new session |
-| `Ctrl+P` | Pause or resume |
+| `Ctrl+N` | Start new work session |
+| `Ctrl+P` | Pause or resume active session |
 | `Ctrl+Enter` | Finish active session |
 | `Ctrl+M` | Toggle compact mode |
 | `Ctrl+H` | Show or hide the main window |
 
+Shortcuts are also listed in **Settings**.
+
 ## Features
+
+### Focus and sessions
 
 - Idle / running / paused main-window states
 - Stopwatch (active time only) and countdown (absolute end time, overtime after zero)
-- One active session at a time
-- Today’s history and total productive duration
-- Optional session notes and simple history edits
+- One active session at a time; additional paused sessions appear in the waiting queue
+- Task-linked sessions with quick-task creation at start
+- Optional context capture when pausing, switching, or finishing
+- Today's history and total productive duration
+- Optional session notes and history edits
 - Always-on-top, compact mode, remember window position/size
 - Minimize to system tray (close hides; Exit from tray quits)
 - Optional start with Windows
 - 12/24-hour clock, optional seconds, light/dark theme
 - Interrupted-session recovery after restart
+- Auto-pause on idle with optional auto-resume
+
+### Tasks and planning
+
+- Quick tasks without a project
+- Projects, milestones, and subtasks
+- Task lifecycle: active, blocked, done, cancelled
+- Working context fields: status, progress, next action, blocker
+- Global search across tasks and context
+
+### Analytics
+
+- Focus time by task and date range
+- Activity heatmap
+- Task switch metrics
+- Project momentum trends
+
+### Upgrading from V1
+
+Existing Jetset databases upgrade automatically on first launch. Historical sessions are linked to tasks by task name, and a welcome dialog introduces V2 navigation and shortcuts.
 
 ## Solution structure
 
 ```text
 Jetset.sln
 src/Jetset.App/     WPF application
-tests/Jetset.Tests/ xUnit timing and session tests
+tests/Jetset.Tests/ xUnit timing, session, migration, and analytics tests
 ```
+
+## Documentation
+
+- [DOMAIN.md](./DOMAIN.md) — V2 product domain and design principles
+- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) — vertical slice delivery plan

@@ -7,11 +7,19 @@ namespace Jetset.App.Services;
 public sealed class SessionService
 {
     private readonly ISessionStore _store;
+    private readonly ITaskStore _taskStore;
+    private readonly ITaskSwitchEventStore? _switchEvents;
     private readonly Func<DateTimeOffset> _clock;
 
-    public SessionService(ISessionStore store, Func<DateTimeOffset>? clock = null)
+    public SessionService(
+        ISessionStore store,
+        ITaskStore taskStore,
+        ITaskSwitchEventStore? switchEvents = null,
+        Func<DateTimeOffset>? clock = null)
     {
         _store = store;
+        _taskStore = taskStore;
+        _switchEvents = switchEvents;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
@@ -23,12 +31,20 @@ public sealed class SessionService
 
     public IReadOnlyList<WorkSession> GetInProgressSessions() => _store.GetInProgressSessions();
 
-    public WorkSession Start(string taskName, TimerMode mode, TimeSpan? countdownDuration)
+    public WorkSession Start(Guid taskId, TimerMode mode, TimeSpan? countdownDuration)
     {
-        var name = taskName.Trim();
+        var task = _taskStore.Get(taskId)
+            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+
+        return StartInternal(task.Id, task.Title, mode, countdownDuration);
+    }
+
+    private WorkSession StartInternal(Guid taskId, string taskTitle, TimerMode mode, TimeSpan? countdownDuration)
+    {
+        var name = taskTitle.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
-            throw new ArgumentException("Task name is required.", nameof(taskName));
+            throw new ArgumentException("Task title is required.", nameof(taskTitle));
         }
 
         if (mode == TimerMode.Countdown)
@@ -40,6 +56,8 @@ public sealed class SessionService
         }
 
         var running = GetRunningSession();
+        RecordTaskSwitch(ResolveFromTaskId(taskId), taskId);
+
         if (running is not null)
         {
             PauseSession(running);
@@ -49,6 +67,7 @@ public sealed class SessionService
         var session = new WorkSession
         {
             Id = Guid.NewGuid(),
+            TaskId = taskId,
             TaskName = name,
             Mode = mode,
             StartedAt = now,
@@ -93,6 +112,8 @@ public sealed class SessionService
         {
             return;
         }
+
+        RecordTaskSwitch(ResolveFromTaskId(target.TaskId), target.TaskId);
 
         if (running is not null)
         {
@@ -269,6 +290,9 @@ public sealed class SessionService
         return _store.GetSessionsForLocalDay(day ?? _clock());
     }
 
+    public IReadOnlyList<WorkSession> GetSessionsByTaskId(Guid taskId) =>
+        _store.GetSessionsByTaskId(taskId);
+
     public TimeSpan GetTodaysTotal(DateTimeOffset? day = null)
     {
         var sessions = GetTodaysSessions(day);
@@ -311,6 +335,39 @@ public sealed class SessionService
     private WorkSession? GetRunningSession()
     {
         return _store.GetInProgressSessions().FirstOrDefault(s => s.State == SessionState.Running);
+    }
+
+    private Guid? ResolveFromTaskId(Guid toTaskId)
+    {
+        var running = GetRunningSession();
+        if (running is not null)
+        {
+            return running.TaskId != toTaskId ? running.TaskId : null;
+        }
+
+        var active = ActiveSession;
+        if (active is not null && active.TaskId != toTaskId)
+        {
+            return active.TaskId;
+        }
+
+        return null;
+    }
+
+    private void RecordTaskSwitch(Guid? fromTaskId, Guid toTaskId)
+    {
+        if (_switchEvents is null || fromTaskId is null)
+        {
+            return;
+        }
+
+        _switchEvents.Insert(new TaskSwitchEvent
+        {
+            Id = Guid.NewGuid(),
+            FromTaskId = fromTaskId,
+            ToTaskId = toTaskId,
+            OccurredAt = _clock()
+        });
     }
 
     private void PauseSession(WorkSession session)

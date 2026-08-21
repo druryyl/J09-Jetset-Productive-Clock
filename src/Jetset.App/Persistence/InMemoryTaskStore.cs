@@ -25,11 +25,22 @@ public sealed class InMemoryTaskStore : ITaskStore
     public IReadOnlyList<WorkTask> Search(string query)
     {
         return _tasks.Values
-            .Where(t => t.Title.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Where(t => MatchesSearchQuery(t, query))
             .OrderByDescending(t => t.UpdatedAt)
             .Select(Clone)
             .ToList();
     }
+
+    private static bool MatchesSearchQuery(WorkTask task, string query) =>
+        task.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+        ContainsField(task.CurrentStatus, query) ||
+        ContainsField(task.LastProgress, query) ||
+        ContainsField(task.NextAction, query) ||
+        ContainsField(task.Blocker, query) ||
+        ContainsField(task.Notes, query);
+
+    private static bool ContainsField(string? value, string query) =>
+        value is not null && value.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     public IReadOnlyList<WorkTask> ListByStatuses(IReadOnlyList<Models.TaskStatus> statuses)
     {

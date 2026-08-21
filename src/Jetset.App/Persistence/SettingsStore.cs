@@ -50,6 +50,8 @@ public sealed class SettingsStore
         Upsert(connection, tx, "WindowTop", settings.WindowTop.ToString(CultureInfo.InvariantCulture));
         Upsert(connection, tx, "WindowWidth", settings.WindowWidth.ToString(CultureInfo.InvariantCulture));
         Upsert(connection, tx, "WindowHeight", settings.WindowHeight.ToString(CultureInfo.InvariantCulture));
+        Upsert(connection, tx, "HasSeenV2Welcome", settings.HasSeenV2Welcome.ToString());
+        Upsert(connection, tx, "UpgradedFromV1", settings.UpgradedFromV1.ToString());
 
         tx.Commit();
     }
@@ -113,6 +115,12 @@ public sealed class SettingsStore
                 break;
             case "WindowHeight":
                 settings.WindowHeight = double.Parse(value, CultureInfo.InvariantCulture);
+                break;
+            case "HasSeenV2Welcome":
+                settings.HasSeenV2Welcome = bool.Parse(value);
+                break;
+            case "UpgradedFromV1":
+                settings.UpgradedFromV1 = bool.Parse(value);
                 break;
         }
     }

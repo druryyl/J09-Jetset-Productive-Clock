@@ -24,7 +24,7 @@ public sealed class SessionStore : ISessionStore
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
+            SELECT Id, TaskId, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
                    State, Note, LastHeartbeatAt, CountdownEndsAt, CountdownRemainingTicks,
                    CountdownCompletedNotified
             FROM WorkSession
@@ -102,6 +102,7 @@ public sealed class SessionStore : ISessionStore
         command.CommandText =
             """
             UPDATE WorkSession SET
+                TaskId = @taskId,
                 TaskName = @taskName,
                 FinishedAt = @finishedAt,
                 State = @state,
@@ -165,7 +166,7 @@ public sealed class SessionStore : ISessionStore
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
+            SELECT Id, TaskId, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
                    State, Note, LastHeartbeatAt, CountdownEndsAt, CountdownRemainingTicks,
                    CountdownCompletedNotified
             FROM WorkSession
@@ -174,6 +175,31 @@ public sealed class SessionStore : ISessionStore
             """;
         command.Parameters.AddWithValue("@start", start.ToString("O"));
         command.Parameters.AddWithValue("@end", end.ToString("O"));
+
+        var results = new List<WorkSession>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadSession(reader));
+        }
+
+        return results;
+    }
+
+    public IReadOnlyList<WorkSession> GetSessionsByTaskId(Guid taskId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT Id, TaskId, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
+                   State, Note, LastHeartbeatAt, CountdownEndsAt, CountdownRemainingTicks,
+                   CountdownCompletedNotified
+            FROM WorkSession
+            WHERE TaskId = @taskId
+            ORDER BY StartedAt;
+            """;
+        command.Parameters.AddWithValue("@taskId", taskId.ToString());
 
         var results = new List<WorkSession>();
         using var reader = command.ExecuteReader();
@@ -201,6 +227,7 @@ public sealed class SessionStore : ISessionStore
             update.CommandText =
                 """
                 UPDATE WorkSession SET
+                    TaskId = @taskId,
                     TaskName = @taskName,
                     FinishedAt = @finishedAt,
                     State = @state,
@@ -264,15 +291,16 @@ public sealed class SessionStore : ISessionStore
         command.CommandText =
             """
             INSERT INTO WorkSession (
-                Id, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
+                Id, TaskId, TaskName, Mode, StartedAt, FinishedAt, CountdownDurationTicks,
                 State, Note, LastHeartbeatAt, CountdownEndsAt, CountdownRemainingTicks,
                 CountdownCompletedNotified)
             VALUES (
-                @id, @taskName, @mode, @startedAt, @finishedAt, @countdownDurationTicks,
+                @id, @taskId, @taskName, @mode, @startedAt, @finishedAt, @countdownDurationTicks,
                 @state, @note, @lastHeartbeatAt, @countdownEndsAt, @countdownRemainingTicks,
                 @countdownCompletedNotified);
             """;
         command.Parameters.AddWithValue("@id", session.Id.ToString());
+        command.Parameters.AddWithValue("@taskId", session.TaskId.ToString());
         command.Parameters.AddWithValue("@taskName", session.TaskName);
         command.Parameters.AddWithValue("@mode", (int)session.Mode);
         command.Parameters.AddWithValue("@startedAt", session.StartedAt.ToString("O"));
@@ -306,6 +334,7 @@ public sealed class SessionStore : ISessionStore
     private static void BindSessionUpdate(SqliteCommand command, WorkSession session)
     {
         command.Parameters.AddWithValue("@id", session.Id.ToString());
+        command.Parameters.AddWithValue("@taskId", session.TaskId.ToString());
         command.Parameters.AddWithValue("@taskName", session.TaskName);
         command.Parameters.AddWithValue("@finishedAt", (object?)session.FinishedAt?.ToString("O") ?? DBNull.Value);
         command.Parameters.AddWithValue("@state", (int)session.State);
@@ -321,17 +350,18 @@ public sealed class SessionStore : ISessionStore
         return new WorkSession
         {
             Id = Guid.Parse(reader.GetString(0)),
-            TaskName = reader.GetString(1),
-            Mode = (TimerMode)reader.GetInt32(2),
-            StartedAt = DateTimeOffset.Parse(reader.GetString(3)),
-            FinishedAt = reader.IsDBNull(4) ? null : DateTimeOffset.Parse(reader.GetString(4)),
-            CountdownDuration = reader.IsDBNull(5) ? null : TimeSpan.FromTicks(reader.GetInt64(5)),
-            State = (SessionState)reader.GetInt32(6),
-            Note = reader.IsDBNull(7) ? null : reader.GetString(7),
-            LastHeartbeatAt = reader.IsDBNull(8) ? null : DateTimeOffset.Parse(reader.GetString(8)),
-            CountdownEndsAt = reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9)),
-            CountdownRemaining = reader.IsDBNull(10) ? null : TimeSpan.FromTicks(reader.GetInt64(10)),
-            CountdownCompletedNotified = reader.GetInt32(11) == 1
+            TaskId = Guid.Parse(reader.GetString(1)),
+            TaskName = reader.GetString(2),
+            Mode = (TimerMode)reader.GetInt32(3),
+            StartedAt = DateTimeOffset.Parse(reader.GetString(4)),
+            FinishedAt = reader.IsDBNull(5) ? null : DateTimeOffset.Parse(reader.GetString(5)),
+            CountdownDuration = reader.IsDBNull(6) ? null : TimeSpan.FromTicks(reader.GetInt64(6)),
+            State = (SessionState)reader.GetInt32(7),
+            Note = reader.IsDBNull(8) ? null : reader.GetString(8),
+            LastHeartbeatAt = reader.IsDBNull(9) ? null : DateTimeOffset.Parse(reader.GetString(9)),
+            CountdownEndsAt = reader.IsDBNull(10) ? null : DateTimeOffset.Parse(reader.GetString(10)),
+            CountdownRemaining = reader.IsDBNull(11) ? null : TimeSpan.FromTicks(reader.GetInt64(11)),
+            CountdownCompletedNotified = reader.GetInt32(12) == 1
         };
     }
 

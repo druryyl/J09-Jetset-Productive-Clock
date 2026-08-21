@@ -22,6 +22,8 @@ public interface ISessionStore
 
     IReadOnlyList<WorkSession> GetSessionsForLocalDay(DateTimeOffset day);
 
+    IReadOnlyList<WorkSession> GetSessionsByTaskId(Guid taskId);
+
     TimeSpan GetActiveDuration(Guid sessionId, DateTimeOffset? now = null);
 
     void UpdateSessionDetails(WorkSession session, IReadOnlyList<WorkInterval> intervals);

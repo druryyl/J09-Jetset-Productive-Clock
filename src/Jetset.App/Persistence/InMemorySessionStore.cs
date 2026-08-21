@@ -97,6 +97,15 @@ public sealed class InMemorySessionStore : ISessionStore
             .ToList();
     }
 
+    public IReadOnlyList<WorkSession> GetSessionsByTaskId(Guid taskId)
+    {
+        return _sessions.Values
+            .Where(s => s.TaskId == taskId)
+            .OrderBy(s => s.StartedAt)
+            .Select(Clone)
+            .ToList();
+    }
+
     public TimeSpan GetActiveDuration(Guid sessionId, DateTimeOffset? now = null)
     {
         return SessionCalculations.CalculateActiveDuration(GetIntervals(sessionId), now);
@@ -117,6 +126,7 @@ public sealed class InMemorySessionStore : ISessionStore
     private static WorkSession Clone(WorkSession s) => new()
     {
         Id = s.Id,
+        TaskId = s.TaskId,
         TaskName = s.TaskName,
         Mode = s.Mode,
         StartedAt = s.StartedAt,

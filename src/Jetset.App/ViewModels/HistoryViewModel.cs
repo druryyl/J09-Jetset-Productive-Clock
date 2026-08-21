@@ -290,6 +290,16 @@ public sealed class HistoryViewModel : ObservableObject
                 return;
             }
 
+            if (session.TaskId != Guid.Empty)
+            {
+                var task = _services.Tasks.Get(session.TaskId);
+                if (task is not null && !string.Equals(task.Title, taskName, StringComparison.Ordinal))
+                {
+                    task.Title = taskName;
+                    _services.Tasks.Update(task);
+                }
+            }
+
             var note = string.IsNullOrWhiteSpace(Selected.Note) ? null : Selected.Note.Trim();
             var startedAt = new DateTimeOffset(startLocal);
             var duration = TimeSpan.FromMinutes(minutes);
@@ -299,6 +309,7 @@ public sealed class HistoryViewModel : ObservableObject
             var updated = new WorkSession
             {
                 Id = session.Id,
+                TaskId = session.TaskId,
                 TaskName = taskName,
                 Mode = session.Mode,
                 StartedAt = startedAt,

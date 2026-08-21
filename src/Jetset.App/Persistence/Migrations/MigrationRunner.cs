@@ -14,6 +14,13 @@ public sealed class MigrationRunner
         _migrations = migrations.OrderBy(m => m.Version).ToList();
     }
 
+    public int GetCurrentVersion()
+    {
+        using var connection = _factory.Create();
+        EnsureSchemaVersionTable(connection);
+        return GetCurrentVersion(connection);
+    }
+
     public void RunPending()
     {
         using var connection = _factory.Create();

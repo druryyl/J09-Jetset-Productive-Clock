@@ -11,15 +11,18 @@ public sealed class IdleAutoPauseController
     public static readonly TimeSpan ActivityThreshold = TimeSpan.FromSeconds(2);
 
     private readonly SessionService _sessions;
+    private readonly WorkExecutionService _execution;
     private readonly ISystemIdleService _idle;
     private readonly Func<AppSettings> _settings;
 
     public IdleAutoPauseController(
         SessionService sessions,
+        WorkExecutionService execution,
         ISystemIdleService idle,
         Func<AppSettings> settings)
     {
         _sessions = sessions;
+        _execution = execution;
         _idle = idle;
         _settings = settings;
     }
@@ -110,7 +113,7 @@ public sealed class IdleAutoPauseController
         try
         {
             PausedByIdle = true;
-            _sessions.Pause();
+            _execution.PauseWork();
             StateChanged?.Invoke(this, EventArgs.Empty);
         }
         catch (InvalidOperationException)

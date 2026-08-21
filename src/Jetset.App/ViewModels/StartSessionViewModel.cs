@@ -1,27 +1,56 @@
+using System.Collections.ObjectModel;
 using Jetset.App.Helpers;
 using Jetset.App.Models;
+using Jetset.App.Services;
 
 namespace Jetset.App.ViewModels;
 
+public sealed class TaskPickerItem
+{
+    public TaskPickerItem(Guid id, string title)
+    {
+        Id = id;
+        Title = title;
+    }
+
+    public Guid Id { get; }
+
+    public string Title { get; }
+
+    public override string ToString() => Title;
+}
+
 public sealed class StartSessionViewModel : ObservableObject
 {
-    private string _taskName = string.Empty;
+    private readonly TaskService? _tasks;
+    private Guid? _selectedTaskId;
+    private string _newTaskTitle = string.Empty;
     private TimerMode _mode = TimerMode.Stopwatch;
     private int _selectedPresetMinutes = 25;
     private bool _useCustomDuration;
     private string _customMinutes = "25";
 
-    public StartSessionViewModel()
+    public StartSessionViewModel(TaskService? tasks = null)
     {
+        _tasks = tasks;
         Presets = [5, 15, 25, 45, 60];
+        AvailableTasks = new ObservableCollection<TaskPickerItem>();
     }
 
     public IReadOnlyList<int> Presets { get; }
 
-    public string TaskName
+    public ObservableCollection<TaskPickerItem> AvailableTasks { get; }
+
+    public Guid? SelectedTaskId
     {
-        get => _taskName;
-        set => SetProperty(ref _taskName, value);
+        get => _selectedTaskId;
+        set => SetProperty(ref _selectedTaskId, value);
+    }
+
+    public string NewTaskTitle
+    {
+        get => _newTaskTitle;
+        set => SetProperty(ref _newTaskTitle, value);
     }
 
     public TimerMode Mode
@@ -91,25 +120,52 @@ public sealed class StartSessionViewModel : ObservableObject
         set => SetProperty(ref _customMinutes, value);
     }
 
+    public void RefreshTaskList()
+    {
+        if (_tasks is null)
+        {
+            return;
+        }
+
+        AvailableTasks.Clear();
+        foreach (var task in _tasks.ListActiveWork()
+            .OrderByDescending(t => t.LastWorkedAt ?? t.UpdatedAt))
+        {
+            AvailableTasks.Add(new TaskPickerItem(task.Id, task.Title));
+        }
+    }
+
     public void Reset()
     {
-        TaskName = string.Empty;
+        SelectedTaskId = null;
+        NewTaskTitle = string.Empty;
         Mode = TimerMode.Stopwatch;
         SelectedPresetMinutes = 25;
         UseCustomDuration = false;
         CustomMinutes = "25";
     }
 
-    public bool TryBuild(out string taskName, out TimerMode mode, out TimeSpan? duration, out string? error)
+    public bool TryBuild(
+        out Guid? selectedTaskId,
+        out string? newTaskTitle,
+        out TimerMode mode,
+        out TimeSpan? duration,
+        out string? error)
     {
-        taskName = TaskName.Trim();
+        selectedTaskId = SelectedTaskId;
+        newTaskTitle = NewTaskTitle.Trim();
+        if (string.IsNullOrWhiteSpace(newTaskTitle))
+        {
+            newTaskTitle = null;
+        }
+
         mode = Mode;
         duration = null;
         error = null;
 
-        if (string.IsNullOrWhiteSpace(taskName))
+        if (selectedTaskId is null && newTaskTitle is null)
         {
-            error = "Enter a task name.";
+            error = "Select a task or enter a new task name.";
             return false;
         }
 

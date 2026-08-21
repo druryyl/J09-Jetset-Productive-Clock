@@ -29,4 +29,8 @@ public sealed class AppSettings
     public double WindowWidth { get; set; } = 360;
 
     public double WindowHeight { get; set; } = 420;
+
+    public bool HasSeenV2Welcome { get; set; }
+
+    public bool UpgradedFromV1 { get; set; }
 }

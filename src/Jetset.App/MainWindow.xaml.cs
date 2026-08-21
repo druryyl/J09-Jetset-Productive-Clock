@@ -10,74 +10,65 @@ namespace Jetset.App;
 public partial class MainWindow : Window
 {
     private readonly AppServices _services;
-    private readonly MainWindowViewModel _viewModel;
+    private readonly ShellViewModel _shellViewModel;
     private bool _forceClose;
+    private bool _applyingSizeHint;
 
     public MainWindow(AppServices services)
     {
         _services = services;
         InitializeComponent();
 
-        _viewModel = new MainWindowViewModel(services);
-        DataContext = _viewModel;
+        _shellViewModel = new ShellViewModel(services);
+        DataContext = _shellViewModel;
 
-        _viewModel.OpenHistoryRequested += (_, _) =>
+        _shellViewModel.Focus.OpenHistoryRequested += (_, _) =>
         {
             var window = new HistoryWindow(services) { Owner = this };
             window.ShowDialog();
-            // Refresh totals after edits
         };
 
-        _viewModel.OpenTasksRequested += (_, _) =>
-        {
-            var window = new TasksWindow(services) { Owner = this };
-            window.ShowDialog();
-        };
-
-        _viewModel.OpenProjectsRequested += (_, _) =>
-        {
-            var window = new ProjectsWindow(services) { Owner = this };
-            window.ShowDialog();
-        };
-
-        _viewModel.OpenSettingsRequested += (_, _) =>
+        _shellViewModel.Focus.OpenSettingsRequested += (_, _) =>
         {
             var window = new SettingsWindow(services) { Owner = this };
             window.ShowDialog();
             ApplyTheme();
         };
 
-        _viewModel.FinishNoteRequested += (_, _) =>
-        {
-            var dialog = new FinishNoteDialog { Owner = this };
-            if (dialog.ShowDialog() == true)
-            {
-                _viewModel.CompleteFinish(dialog.Note);
-            }
-        };
+        _shellViewModel.Focus.ContextCaptureRequested += OnContextCaptureRequested;
+        _shellViewModel.Tasks.ContextCaptureRequested += OnContextCaptureRequested;
+        _shellViewModel.Projects.ContextCaptureRequested += OnContextCaptureRequested;
+        _shellViewModel.Search.ContextCaptureRequested += OnContextCaptureRequested;
 
-        _viewModel.RecoveryNeeded += (_, session) =>
+        _shellViewModel.Focus.RecoveryNeeded += (_, session) =>
         {
             var dialog = new RecoveryDialog(session) { Owner = this };
             dialog.ShowDialog();
             switch (dialog.Result)
             {
                 case RecoveryResult.Continue:
-                    _viewModel.ApplyRecoveryContinue();
+                    _shellViewModel.Focus.ApplyRecoveryContinue();
                     break;
                 case RecoveryResult.FinishLastKnown:
-                    _viewModel.ApplyRecoveryFinishLastKnown();
+                    _shellViewModel.Focus.ApplyRecoveryFinishLastKnown();
                     break;
                 case RecoveryResult.Discard:
-                    _viewModel.ApplyRecoveryDiscard();
+                    _shellViewModel.Focus.ApplyRecoveryDiscard();
                     break;
             }
         };
 
+        _shellViewModel.WindowSizeHintChanged += (_, _) => ApplyWindowSizeHint();
+
         ApplyWindowBounds();
+        ApplyWindowSizeHint();
         ApplyTheme();
 
-        Loaded += (_, _) => _viewModel.CheckRecovery();
+        Loaded += (_, _) =>
+        {
+            _shellViewModel.Focus.CheckRecovery();
+            ShowV2WelcomeIfNeeded();
+        };
         LocationChanged += (_, _) => PersistBounds();
         SizeChanged += (_, _) => PersistBounds();
         Closing += OnClosing;
@@ -96,6 +87,40 @@ public partial class MainWindow : Window
         Activate();
     }
 
+    private void OnContextCaptureRequested(object? sender, ContextCaptureRequest request)
+    {
+        var dialog = new ContextCaptureDialog(request) { Owner = this };
+        var confirmed = dialog.ShowDialog();
+        if (confirmed == true)
+        {
+            request.Result = dialog.CaptureResult;
+            request.Context = dialog.Context;
+            request.SessionNote = dialog.SessionNote;
+            return;
+        }
+
+        request.Result = request.Reason == ContextCaptureReason.Finish
+            ? ContextCaptureResult.Cancelled
+            : ContextCaptureResult.Skipped;
+    }
+
+    private void ShowV2WelcomeIfNeeded()
+    {
+        if (_services.Settings.Settings.HasSeenV2Welcome)
+        {
+            return;
+        }
+
+        var dialog = new V2WelcomeDialog(_services.Settings.Settings.UpgradedFromV1) { Owner = this };
+        dialog.ShowDialog();
+
+        _services.Settings.Update(settings =>
+        {
+            settings.HasSeenV2Welcome = true;
+            settings.UpgradedFromV1 = false;
+        });
+    }
+
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         PersistBounds();
@@ -103,7 +128,7 @@ public partial class MainWindow : Window
 
         if (_forceClose || _services.Tray.ExitRequestedFlag)
         {
-            _viewModel.Dispose();
+            _shellViewModel.Dispose();
             return;
         }
 
@@ -135,9 +160,40 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ApplyWindowSizeHint()
+    {
+        if (!IsLoaded && ActualWidth <= 0)
+        {
+            MinWidth = _shellViewModel.SuggestedMinWidth;
+            MinHeight = _shellViewModel.SuggestedMinHeight;
+            return;
+        }
+
+        _applyingSizeHint = true;
+        try
+        {
+            MinWidth = _shellViewModel.SuggestedMinWidth;
+            MinHeight = _shellViewModel.SuggestedMinHeight;
+
+            if (Width < MinWidth)
+            {
+                Width = Math.Max(_shellViewModel.SuggestedWidth, MinWidth);
+            }
+
+            if (Height < MinHeight)
+            {
+                Height = Math.Max(_shellViewModel.SuggestedHeight, MinHeight);
+            }
+        }
+        finally
+        {
+            _applyingSizeHint = false;
+        }
+    }
+
     private void PersistBounds()
     {
-        if (!IsLoaded || WindowState != WindowState.Normal)
+        if (!IsLoaded || WindowState != WindowState.Normal || _applyingSizeHint)
         {
             return;
         }
@@ -156,40 +212,62 @@ public partial class MainWindow : Window
 
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
+        var focus = _shellViewModel.Focus;
+
         if (Keyboard.Modifiers == ModifierKeys.Control)
         {
             switch (e.Key)
             {
                 case Key.N:
-                    if (_viewModel.StartWorkCommand.CanExecute(null))
+                    if (_shellViewModel.CurrentArea != ShellArea.Focus)
                     {
-                        _viewModel.StartWorkCommand.Execute(null);
+                        _shellViewModel.NavigateTo(ShellArea.Focus);
+                    }
+
+                    if (focus.StartWorkCommand.CanExecute(null))
+                    {
+                        focus.StartWorkCommand.Execute(null);
                     }
 
                     e.Handled = true;
                     break;
                 case Key.P:
-                    if (_viewModel.IsRunning)
+                    if (_shellViewModel.CurrentArea != ShellArea.Focus)
                     {
-                        _viewModel.PauseCommand.Execute(null);
+                        _shellViewModel.NavigateTo(ShellArea.Focus);
                     }
-                    else if (_viewModel.IsPaused)
+
+                    if (focus.IsRunning)
                     {
-                        _viewModel.ResumeCommand.Execute(null);
+                        focus.PauseCommand.Execute(null);
+                    }
+                    else if (focus.IsPaused)
+                    {
+                        focus.ResumeCommand.Execute(null);
                     }
 
                     e.Handled = true;
                     break;
                 case Key.Enter:
-                    if (_viewModel.FinishCommand.CanExecute(null))
+                    if (focus.FinishCommand.CanExecute(null))
                     {
-                        _viewModel.FinishCommand.Execute(null);
+                        if (_shellViewModel.CurrentArea != ShellArea.Focus)
+                        {
+                            _shellViewModel.NavigateTo(ShellArea.Focus);
+                        }
+
+                        focus.FinishCommand.Execute(null);
                     }
 
                     e.Handled = true;
                     break;
                 case Key.M:
-                    _viewModel.ToggleCompactCommand.Execute(null);
+                    if (_shellViewModel.CurrentArea != ShellArea.Focus)
+                    {
+                        _shellViewModel.NavigateTo(ShellArea.Focus);
+                    }
+
+                    focus.ToggleCompactCommand.Execute(null);
                     e.Handled = true;
                     break;
                 case Key.H:

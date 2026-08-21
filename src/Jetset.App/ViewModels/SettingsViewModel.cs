@@ -36,12 +36,15 @@ public sealed class SettingsViewModel : ObservableObject
         _autoResumeAfterIdle = s.AutoResumeAfterIdle;
 
         IdleTimeoutOptions = new ObservableCollection<int>(TimeoutChoices);
+        Shortcuts = V2WelcomeViewModel.DefaultShortcuts;
         SaveCommand = new RelayCommand(Save);
     }
 
     public RelayCommand SaveCommand { get; }
 
     public ObservableCollection<int> IdleTimeoutOptions { get; }
+
+    public IReadOnlyList<ShortcutItem> Shortcuts { get; }
 
     public bool AlwaysOnTop
     {

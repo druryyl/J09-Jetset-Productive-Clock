@@ -2,18 +2,46 @@ using Jetset.App.Helpers;
 using Jetset.App.Models;
 using Jetset.App.Persistence;
 using Jetset.App.Services;
+using TaskStatus = Jetset.App.Models.TaskStatus;
 
 namespace Jetset.Tests;
 
 public class SessionServiceTests
 {
-    private static (SessionService Service, InMemorySessionStore Store, Action<DateTimeOffset> SetNow)
+    private static (SessionService Service, InMemorySessionStore Store, InMemoryTaskStore TaskStore, Action<DateTimeOffset> SetNow)
         CreateHarness(DateTimeOffset start)
     {
         var now = start;
         var store = new InMemorySessionStore();
-        var service = new SessionService(store, () => now);
-        return (service, store, value => now = value);
+        var taskStore = new InMemoryTaskStore();
+        var service = new SessionService(store, taskStore, null, () => now);
+        return (service, store, taskStore, value => now = value);
+    }
+
+    private static Guid CreateTask(InMemoryTaskStore taskStore, string title, DateTimeOffset now)
+    {
+        var task = new WorkTask
+        {
+            Id = Guid.NewGuid(),
+            Title = title,
+            Status = TaskStatus.Active,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        taskStore.Insert(task);
+        return task.Id;
+    }
+
+    private static WorkSession StartSession(
+        SessionService service,
+        InMemoryTaskStore taskStore,
+        DateTimeOffset now,
+        string title,
+        TimerMode mode,
+        TimeSpan? duration)
+    {
+        var taskId = CreateTask(taskStore, title, now);
+        return service.Start(taskId, mode, duration);
     }
 
     [Fact]
@@ -21,9 +49,9 @@ public class SessionServiceTests
     {
         // Start 09:00, pause 09:30, resume 09:45, finish 10:15 => 1 hour
         var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var session = service.Start("API work", TimerMode.Stopwatch, null);
+        var session = StartSession(service, taskStore, start, "API work", TimerMode.Stopwatch, null);
 
         setNow(start.AddMinutes(30));
         service.Pause();
@@ -41,9 +69,9 @@ public class SessionServiceTests
     public void GivenMultiplePauseResumeIntervals_WhenSummed_ThenActiveDurationIsCorrect()
     {
         var start = new DateTimeOffset(2026, 8, 6, 10, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var session = service.Start("Intervals", TimerMode.Stopwatch, null);
+        var session = StartSession(service, taskStore, start, "Intervals", TimerMode.Stopwatch, null);
 
         setNow(start.AddMinutes(10));
         service.Pause();
@@ -64,9 +92,9 @@ public class SessionServiceTests
     public void GivenCountdown_WhenQueryingRemaining_ThenUsesTargetTime()
     {
         var start = new DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero);
-        var (service, _, setNow) = CreateHarness(start);
+        var (service, _, taskStore, setNow) = CreateHarness(start);
 
-        var session = service.Start("Focus", TimerMode.Countdown, TimeSpan.FromMinutes(25));
+        var session = StartSession(service, taskStore, start, "Focus", TimerMode.Countdown, TimeSpan.FromMinutes(25));
         setNow(start.AddMinutes(10));
 
         // Reload session state from store via ActiveSession
@@ -80,9 +108,9 @@ public class SessionServiceTests
     public void GivenCountdownPastZero_WhenQuerying_ThenReportsOvertime()
     {
         var start = new DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero);
-        var (service, _, setNow) = CreateHarness(start);
+        var (service, _, taskStore, setNow) = CreateHarness(start);
 
-        service.Start("Focus", TimerMode.Countdown, TimeSpan.FromMinutes(5));
+        StartSession(service, taskStore, start, "Focus", TimerMode.Countdown, TimeSpan.FromMinutes(5));
         setNow(start.AddMinutes(12));
         var session = service.ActiveSession!;
 
@@ -95,11 +123,11 @@ public class SessionServiceTests
     public void GivenRunningSession_WhenStartingAnother_ThenFirstIsPausedAndSecondIsActive()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var first = service.Start("First", TimerMode.Stopwatch, null);
+        var first = StartSession(service, taskStore, start, "First", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(10));
-        var second = service.Start("Second", TimerMode.Stopwatch, null);
+        var second = StartSession(service, taskStore, start, "Second", TimerMode.Stopwatch, null);
 
         var inProgress = service.GetInProgressSessions();
         Assert.Equal(2, inProgress.Count);
@@ -115,11 +143,11 @@ public class SessionServiceTests
     public void GivenTwoInProgress_WhenSwitchToWaiting_ThenTimerMovesAndGapsExcluded()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var first = service.Start("Task A", TimerMode.Stopwatch, null);
+        var first = StartSession(service, taskStore, start, "Task A", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(10));
-        var second = service.Start("Task B", TimerMode.Stopwatch, null);
+        var second = StartSession(service, taskStore, start, "Task B", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(25));
 
         service.SwitchTo(first.Id);
@@ -136,11 +164,11 @@ public class SessionServiceTests
     public void GivenTwoInProgress_WhenFinishActive_ThenWaitingBecomesFocusedPaused()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, _, setNow) = CreateHarness(start);
+        var (service, _, taskStore, setNow) = CreateHarness(start);
 
-        var first = service.Start("Task A", TimerMode.Stopwatch, null);
+        var first = StartSession(service, taskStore, start, "Task A", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(5));
-        service.Start("Task B", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Task B", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(15));
         service.Finish();
 
@@ -154,13 +182,13 @@ public class SessionServiceTests
     public void GivenPausedAndRunning_WhenGetActiveSession_ThenPrefersRunning()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var first = service.Start("Older", TimerMode.Stopwatch, null);
+        var first = StartSession(service, taskStore, start, "Older", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(5));
         service.Pause();
         setNow(start.AddMinutes(10));
-        var second = service.Start("Newer running", TimerMode.Stopwatch, null);
+        var second = StartSession(service, taskStore, start, "Newer running", TimerMode.Stopwatch, null);
 
         Assert.Equal(second.Id, store.GetActiveSession()!.Id);
         Assert.Equal(SessionState.Running, store.GetActiveSession()!.State);
@@ -171,11 +199,11 @@ public class SessionServiceTests
     public void GivenWaitingSession_WhenDeleted_ThenRejected()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, _, setNow) = CreateHarness(start);
+        var (service, _, taskStore, setNow) = CreateHarness(start);
 
-        var first = service.Start("Waiting", TimerMode.Stopwatch, null);
+        var first = StartSession(service, taskStore, start, "Waiting", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(5));
-        service.Start("Active", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Active", TimerMode.Stopwatch, null);
 
         Assert.Throws<InvalidOperationException>(() => service.DeleteSession(first.Id));
         Assert.Equal(2, service.GetInProgressSessions().Count);
@@ -185,9 +213,9 @@ public class SessionServiceTests
     public void GivenRunningSession_WhenFinished_ThenOpenIntervalIsClosed()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var session = service.Start("Close interval", TimerMode.Stopwatch, null);
+        var session = StartSession(service, taskStore, start, "Close interval", TimerMode.Stopwatch, null);
         Assert.NotNull(store.GetOpenInterval(session.Id));
 
         setNow(start.AddMinutes(20));
@@ -202,9 +230,9 @@ public class SessionServiceTests
     public void GivenPausedSession_WhenPausedAgain_ThenRejectedWithoutNewInterval()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var session = service.Start("Pause twice", TimerMode.Stopwatch, null);
+        var session = StartSession(service, taskStore, start, "Pause twice", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(5));
         service.Pause();
         var countAfterFirstPause = store.GetIntervals(session.Id).Count;
@@ -218,9 +246,9 @@ public class SessionServiceTests
     public void GivenRunningSession_WhenResumed_ThenRejected()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, _, _) = CreateHarness(start);
+        var (service, _, taskStore, _) = CreateHarness(start);
 
-        service.Start("Already running", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Already running", TimerMode.Stopwatch, null);
 
         Assert.Throws<InvalidOperationException>(() => service.Resume());
     }
@@ -229,19 +257,19 @@ public class SessionServiceTests
     public void GivenTodaysSessions_WhenTotalled_ThenCancelledExcludedAndActiveIncluded()
     {
         var start = new DateTimeOffset(2026, 8, 6, 8, 0, 0, TimeSpan.Zero);
-        var (service, _, setNow) = CreateHarness(start);
+        var (service, _, taskStore, setNow) = CreateHarness(start);
 
-        service.Start("Done", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Done", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(30));
         service.Finish();
 
         setNow(start.AddHours(1));
-        service.Start("Discard me", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Discard me", TimerMode.Stopwatch, null);
         setNow(start.AddHours(1).AddMinutes(10));
         service.Discard();
 
         setNow(start.AddHours(2));
-        service.Start("Still going", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Still going", TimerMode.Stopwatch, null);
         setNow(start.AddHours(2).AddMinutes(15));
 
         var total = service.GetTodaysTotal(start.AddHours(2).AddMinutes(15));
@@ -253,30 +281,55 @@ public class SessionServiceTests
     {
         var start = new DateTimeOffset(2026, 8, 6, 9, 15, 0, TimeSpan.Zero);
         var store = new InMemorySessionStore();
+        var taskStore = new InMemoryTaskStore();
         var now = start;
-        var service = new SessionService(store, () => now);
+        var service = new SessionService(store, taskStore, null, () => now);
 
-        service.Start("Implement API", TimerMode.Stopwatch, null);
+        StartSession(service, taskStore, start, "Implement API", TimerMode.Stopwatch, null);
         now = start.AddMinutes(20);
         service.Heartbeat();
 
         // Simulate restart with a new service over the same store
-        var restarted = new SessionService(store, () => now.AddMinutes(5));
+        var restarted = new SessionService(store, taskStore, null, () => now.AddMinutes(5));
         var unfinished = restarted.ActiveSession;
 
         Assert.NotNull(unfinished);
         Assert.Equal("Implement API", unfinished.TaskName);
         Assert.Equal(SessionState.Running, unfinished.State);
         Assert.NotNull(unfinished.LastHeartbeatAt);
+        Assert.NotEqual(Guid.Empty, unfinished.TaskId);
+    }
+
+    [Fact]
+    public void GivenTaskId_WhenSessionStarted_ThenSessionLinksToTask()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
+        var (service, _, taskStore, _) = CreateHarness(start);
+
+        var taskId = CreateTask(taskStore, "Linked task", start);
+        var session = service.Start(taskId, TimerMode.Stopwatch, null);
+
+        Assert.Equal(taskId, session.TaskId);
+        Assert.Equal("Linked task", session.TaskName);
+    }
+
+    [Fact]
+    public void GivenMissingTask_WhenStart_ThenRejected()
+    {
+        var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
+        var (service, _, _, _) = CreateHarness(start);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            service.Start(Guid.NewGuid(), TimerMode.Stopwatch, null));
     }
 
     [Fact]
     public void GivenCompletedSession_WhenDeleted_ThenRemovedFromStore()
     {
         var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
-        var (service, store, setNow) = CreateHarness(start);
+        var (service, store, taskStore, setNow) = CreateHarness(start);
 
-        var session = service.Start("Ship feature", TimerMode.Stopwatch, null);
+        var session = StartSession(service, taskStore, start, "Ship feature", TimerMode.Stopwatch, null);
         setNow(start.AddMinutes(25));
         service.Finish();
 
@@ -290,13 +343,40 @@ public class SessionServiceTests
     public void GivenActiveSession_WhenDeleted_ThenRejectedAndSessionRemains()
     {
         var start = new DateTimeOffset(2026, 8, 6, 9, 0, 0, TimeSpan.Zero);
-        var (service, store, _) = CreateHarness(start);
+        var (service, store, taskStore, _) = CreateHarness(start);
 
-        var session = service.Start("Still working", TimerMode.Stopwatch, null);
+        var session = StartSession(service, taskStore, start, "Still working", TimerMode.Stopwatch, null);
 
         Assert.Throws<InvalidOperationException>(() => service.DeleteSession(session.Id));
         Assert.Equal(session.Id, store.GetSessionsForLocalDay(start).Single().Id);
         Assert.NotNull(service.ActiveSession);
+    }
+
+    [Fact]
+    public void SwitchTo_RecordsTaskSwitchEvent()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 9, 0, 0, TimeSpan.Zero);
+        var switchEvents = new InMemoryTaskSwitchEventStore();
+        var now = start;
+        var store = new InMemorySessionStore();
+        var taskStore = new InMemoryTaskStore();
+        var service = new SessionService(store, taskStore, switchEvents, () => now);
+
+        var firstTaskId = CreateTask(taskStore, "First", start);
+        var secondTaskId = CreateTask(taskStore, "Second", start);
+
+        service.Start(firstTaskId, TimerMode.Stopwatch, null);
+        now = start.AddMinutes(5);
+        service.Start(secondTaskId, TimerMode.Stopwatch, null);
+        now = start.AddMinutes(12);
+        service.SwitchTo(store.GetInProgressSessions().First(s => s.TaskId == firstTaskId).Id);
+
+        var events = switchEvents.ListBetween(start, start.AddDays(1));
+        Assert.Equal(2, events.Count);
+        Assert.Equal(firstTaskId, events[0].FromTaskId);
+        Assert.Equal(secondTaskId, events[0].ToTaskId);
+        Assert.Equal(secondTaskId, events[1].FromTaskId);
+        Assert.Equal(firstTaskId, events[1].ToTaskId);
     }
 }
 

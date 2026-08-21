@@ -9,6 +9,11 @@
   <Color x:Key="DangerColor">#E07A6B</Color>
   <Color x:Key="BorderColor">#333A3E</Color>
   <Color x:Key="PausedColor">#D2B15A</Color>
+  <Color x:Key="HeatmapLevel0Color">#2A2F33</Color>
+  <Color x:Key="HeatmapLevel1Color">#1E3A32</Color>
+  <Color x:Key="HeatmapLevel2Color">#2A6B58</Color>
+  <Color x:Key="HeatmapLevel3Color">#3D9B84</Color>
+  <Color x:Key="HeatmapLevel4Color">#5BC4A8</Color>
 
   <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}" />
   <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}" />
@@ -19,6 +24,11 @@
   <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource DangerColor}" />
   <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
   <SolidColorBrush x:Key="PausedBrush" Color="{StaticResource PausedColor}" />
+  <SolidColorBrush x:Key="HeatmapLevel0Brush" Color="{StaticResource HeatmapLevel0Color}" />
+  <SolidColorBrush x:Key="HeatmapLevel1Brush" Color="{StaticResource HeatmapLevel1Color}" />
+  <SolidColorBrush x:Key="HeatmapLevel2Brush" Color="{StaticResource HeatmapLevel2Color}" />
+  <SolidColorBrush x:Key="HeatmapLevel3Brush" Color="{StaticResource HeatmapLevel3Color}" />
+  <SolidColorBrush x:Key="HeatmapLevel4Brush" Color="{StaticResource HeatmapLevel4Color}" />
 
   <FontFamily x:Key="DisplayFont">Segoe UI Variable Display, Segoe UI</FontFamily>
   <FontFamily x:Key="BodyFont">Segoe UI Variable Text, Segoe UI</FontFamily>
@@ -54,5 +64,15 @@
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="Cursor" Value="Hand" />
     <Setter Property="Padding" Value="0" />
+  </Style>
+
+  <Style x:Key="NavTabButton" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}" />
+    <Setter Property="Padding" Value="12,6" />
+    <Setter Property="Margin" Value="0,0,8,0" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FontWeight" Value="Normal" />
   </Style>
 </ResourceDictionary>

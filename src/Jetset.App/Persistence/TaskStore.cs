@@ -100,6 +100,11 @@ public sealed class TaskStore : ITaskStore
                    ProjectId, MilestoneId, CreatedAt, UpdatedAt, LastWorkedAt
             FROM "Task"
             WHERE Title LIKE @query COLLATE NOCASE
+               OR CurrentStatus LIKE @query COLLATE NOCASE
+               OR LastProgress LIKE @query COLLATE NOCASE
+               OR NextAction LIKE @query COLLATE NOCASE
+               OR Blocker LIKE @query COLLATE NOCASE
+               OR Notes LIKE @query COLLATE NOCASE
             ORDER BY UpdatedAt DESC;
             """;
         command.Parameters.AddWithValue("@query", "%" + query + "%");

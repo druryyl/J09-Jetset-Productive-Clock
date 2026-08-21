@@ -4,6 +4,8 @@ public sealed class WorkSession
 {
     public Guid Id { get; init; }
 
+    public Guid TaskId { get; init; }
+
     public string TaskName { get; set; } = string.Empty;
 
     public TimerMode Mode { get; init; }

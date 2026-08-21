@@ -96,6 +96,12 @@
                       SelectedItem="{Binding SelectedProjectOption}"
                       DisplayMemberPath="DisplayName"
                       Margin="0,4,0,8" />
+            <TextBlock Text="Milestone" Foreground="{DynamicResource TextSecondaryBrush}" />
+            <ComboBox ItemsSource="{Binding MilestoneOptions}"
+                      SelectedItem="{Binding SelectedMilestoneOption}"
+                      DisplayMemberPath="DisplayName"
+                      IsEnabled="{Binding CanAssignMilestone}"
+                      Margin="0,4,0,8" />
             <TextBlock Text="Notes" Foreground="{DynamicResource TextSecondaryBrush}" />
             <TextBox Text="{Binding Selected.Notes, UpdateSourceTrigger=PropertyChanged}"
                      Margin="0,4,0,8" Padding="4"

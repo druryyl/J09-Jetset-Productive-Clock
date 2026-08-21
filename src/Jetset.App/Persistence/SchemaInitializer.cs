@@ -16,7 +16,8 @@ public sealed class SchemaInitializer
         new MigrationRunner(_factory, [
             new Migration001_InitialSchema(),
             new Migration002_AddTaskTable(),
-            new Migration003_AddProjectTable()
+            new Migration003_AddProjectTable(),
+            new Migration004_AddMilestoneTable()
         ]).RunPending();
     }
 }

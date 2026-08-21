@@ -7,15 +7,26 @@ public sealed class ProjectService
 {
     private readonly IProjectStore _store;
     private readonly ITaskStore _taskStore;
+    private readonly IMilestoneStore? _milestoneStore;
     private readonly Func<DateTimeOffset> _clock;
 
     public ProjectService(
         IProjectStore store,
         ITaskStore taskStore,
         Func<DateTimeOffset>? clock = null)
+        : this(store, taskStore, milestoneStore: null, clock)
+    {
+    }
+
+    public ProjectService(
+        IProjectStore store,
+        ITaskStore taskStore,
+        IMilestoneStore? milestoneStore,
+        Func<DateTimeOffset>? clock = null)
     {
         _store = store;
         _taskStore = taskStore;
+        _milestoneStore = milestoneStore;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
@@ -81,6 +92,7 @@ public sealed class ProjectService
         }
 
         _taskStore.UnassignAllFromProject(id);
+        _milestoneStore?.DeleteByProject(id);
         _store.Delete(id);
     }
 }

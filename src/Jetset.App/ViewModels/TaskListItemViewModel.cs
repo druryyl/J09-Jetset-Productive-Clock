@@ -11,8 +11,10 @@ public sealed class TaskListItemViewModel : ObservableObject
     private string _notes;
     private Guid? _projectId;
     private string? _projectName;
+    private Guid? _milestoneId;
+    private string? _milestoneName;
 
-    public TaskListItemViewModel(WorkTask task, string? projectName = null)
+    public TaskListItemViewModel(WorkTask task, string? projectName = null, string? milestoneName = null)
     {
         Task = task;
         _title = task.Title;
@@ -20,6 +22,8 @@ public sealed class TaskListItemViewModel : ObservableObject
         _notes = task.Notes ?? string.Empty;
         _projectId = task.ProjectId;
         _projectName = projectName;
+        _milestoneId = task.MilestoneId;
+        _milestoneName = milestoneName;
     }
 
     public WorkTask Task { get; }
@@ -76,10 +80,41 @@ public sealed class TaskListItemViewModel : ObservableObject
         }
     }
 
+    public Guid? MilestoneId
+    {
+        get => _milestoneId;
+        set
+        {
+            if (SetProperty(ref _milestoneId, value))
+            {
+                OnPropertyChanged(nameof(HasMilestone));
+                OnPropertyChanged(nameof(MilestoneDisplay));
+            }
+        }
+    }
+
+    public string? MilestoneName
+    {
+        get => _milestoneName;
+        set
+        {
+            if (SetProperty(ref _milestoneName, value))
+            {
+                OnPropertyChanged(nameof(HasMilestone));
+                OnPropertyChanged(nameof(MilestoneDisplay));
+            }
+        }
+    }
+
     public bool HasProject => ProjectId is not null;
+
+    public bool HasMilestone => MilestoneId is not null;
 
     public string ProjectDisplay =>
         string.IsNullOrWhiteSpace(ProjectName) ? string.Empty : ProjectName;
+
+    public string MilestoneDisplay =>
+        string.IsNullOrWhiteSpace(MilestoneName) ? string.Empty : MilestoneName;
 
     public string StatusText => Status.ToString();
 }

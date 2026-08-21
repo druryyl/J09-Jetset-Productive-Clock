@@ -37,6 +37,15 @@ public sealed class ProjectAssignOption
     public override string ToString() => DisplayName;
 }
 
+public sealed class MilestoneAssignOption
+{
+    public Guid? MilestoneId { get; init; }
+
+    public required string DisplayName { get; init; }
+
+    public override string ToString() => DisplayName;
+}
+
 public sealed class TasksViewModel : ObservableObject
 {
     private readonly AppServices _services;
@@ -45,8 +54,10 @@ public sealed class TasksViewModel : ObservableObject
     private string _quickAddTitle = string.Empty;
     private ProjectFilterOption? _selectedFilter;
     private ProjectAssignOption? _selectedProjectOption;
+    private MilestoneAssignOption? _selectedMilestoneOption;
     private string? _message;
     private bool _suppressFilterReload;
+    private bool _suppressMilestoneRebuild;
 
     public TasksViewModel(AppServices services)
     {
@@ -54,6 +65,7 @@ public sealed class TasksViewModel : ObservableObject
         Items = new ObservableCollection<TaskListItemViewModel>();
         FilterOptions = new ObservableCollection<ProjectFilterOption>();
         ProjectOptions = new ObservableCollection<ProjectAssignOption>();
+        MilestoneOptions = new ObservableCollection<MilestoneAssignOption>();
         StatusOptions = Enum.GetValues<TaskStatus>();
 
         AddTaskCommand = new RelayCommand(AddTask, CanAddTask);
@@ -71,6 +83,8 @@ public sealed class TasksViewModel : ObservableObject
     public ObservableCollection<ProjectFilterOption> FilterOptions { get; }
 
     public ObservableCollection<ProjectAssignOption> ProjectOptions { get; }
+
+    public ObservableCollection<MilestoneAssignOption> MilestoneOptions { get; }
 
     public TaskStatus[] StatusOptions { get; }
 
@@ -90,6 +104,9 @@ public sealed class TasksViewModel : ObservableObject
                 SaveCommand.RaiseCanExecuteChanged();
                 DeleteCommand.RaiseCanExecuteChanged();
                 SyncSelectedProjectOption();
+                RebuildMilestoneOptions(SelectedProjectOption?.ProjectId);
+                SyncSelectedMilestoneOption();
+                OnPropertyChanged(nameof(CanAssignMilestone));
             }
         }
     }
@@ -97,6 +114,8 @@ public sealed class TasksViewModel : ObservableObject
     public bool HasSelection => Selected is not null;
 
     public bool HasItems => Items.Count > 0;
+
+    public bool CanAssignMilestone => SelectedProjectOption?.ProjectId is not null;
 
     public string SearchText
     {
@@ -125,7 +144,29 @@ public sealed class TasksViewModel : ObservableObject
     public ProjectAssignOption? SelectedProjectOption
     {
         get => _selectedProjectOption;
-        set => SetProperty(ref _selectedProjectOption, value);
+        set
+        {
+            if (SetProperty(ref _selectedProjectOption, value))
+            {
+                if (!_suppressMilestoneRebuild)
+                {
+                    RebuildMilestoneOptions(value?.ProjectId);
+                    if (SelectedMilestoneOption?.MilestoneId is not null &&
+                        MilestoneOptions.All(m => m.MilestoneId != SelectedMilestoneOption.MilestoneId))
+                    {
+                        SelectedMilestoneOption = MilestoneOptions[0];
+                    }
+
+                    OnPropertyChanged(nameof(CanAssignMilestone));
+                }
+            }
+        }
+    }
+
+    public MilestoneAssignOption? SelectedMilestoneOption
+    {
+        get => _selectedMilestoneOption;
+        set => SetProperty(ref _selectedMilestoneOption, value);
     }
 
     public string QuickAddTitle
@@ -202,6 +243,38 @@ public sealed class TasksViewModel : ObservableObject
         }
     }
 
+    private void RebuildMilestoneOptions(Guid? projectId)
+    {
+        var previousMilestoneId = SelectedMilestoneOption?.MilestoneId;
+
+        MilestoneOptions.Clear();
+        MilestoneOptions.Add(new MilestoneAssignOption { DisplayName = "None", MilestoneId = null });
+
+        if (projectId is { } pid)
+        {
+            foreach (var milestone in _services.Milestones.ListByProject(pid))
+            {
+                MilestoneOptions.Add(new MilestoneAssignOption
+                {
+                    DisplayName = milestone.Name,
+                    MilestoneId = milestone.Id
+                });
+            }
+        }
+
+        _suppressMilestoneRebuild = true;
+        try
+        {
+            SelectedMilestoneOption = previousMilestoneId is { } mid
+                ? MilestoneOptions.FirstOrDefault(m => m.MilestoneId == mid) ?? MilestoneOptions[0]
+                : MilestoneOptions[0];
+        }
+        finally
+        {
+            _suppressMilestoneRebuild = false;
+        }
+    }
+
     private void SyncSelectedProjectOption()
     {
         if (Selected is null)
@@ -210,12 +283,46 @@ public sealed class TasksViewModel : ObservableObject
             return;
         }
 
-        SelectedProjectOption = ProjectOptions.FirstOrDefault(p => p.ProjectId == Selected.ProjectId)
-            ?? ProjectOptions[0];
+        _suppressMilestoneRebuild = true;
+        try
+        {
+            SelectedProjectOption = ProjectOptions.FirstOrDefault(p => p.ProjectId == Selected.ProjectId)
+                ?? ProjectOptions[0];
+        }
+        finally
+        {
+            _suppressMilestoneRebuild = false;
+        }
+    }
+
+    private void SyncSelectedMilestoneOption()
+    {
+        if (Selected is null)
+        {
+            SelectedMilestoneOption = null;
+            return;
+        }
+
+        SelectedMilestoneOption = MilestoneOptions.FirstOrDefault(m => m.MilestoneId == Selected.MilestoneId)
+            ?? MilestoneOptions[0];
     }
 
     private Dictionary<Guid, string> BuildProjectNameMap() =>
         _services.Projects.ListProjects().ToDictionary(p => p.Id, p => p.Name);
+
+    private Dictionary<Guid, string> BuildMilestoneNameMap()
+    {
+        var map = new Dictionary<Guid, string>();
+        foreach (var project in _services.Projects.ListProjects())
+        {
+            foreach (var milestone in _services.Milestones.ListByProject(project.Id))
+            {
+                map[milestone.Id] = milestone.Name;
+            }
+        }
+
+        return map;
+    }
 
     private void Load()
     {
@@ -225,6 +332,7 @@ public sealed class TasksViewModel : ObservableObject
         Items.Clear();
 
         var projectNames = BuildProjectNameMap();
+        var milestoneNames = BuildMilestoneNameMap();
         IEnumerable<WorkTask> tasks;
 
         if (!string.IsNullOrWhiteSpace(SearchText))
@@ -257,7 +365,13 @@ public sealed class TasksViewModel : ObservableObject
                 projectNames.TryGetValue(pid, out projectName);
             }
 
-            Items.Add(new TaskListItemViewModel(task, projectName));
+            string? milestoneName = null;
+            if (task.MilestoneId is { } mid)
+            {
+                milestoneNames.TryGetValue(mid, out milestoneName);
+            }
+
+            Items.Add(new TaskListItemViewModel(task, projectName, milestoneName));
         }
 
         Selected = selectedId is { } id
@@ -299,6 +413,8 @@ public sealed class TasksViewModel : ObservableObject
         try
         {
             var projectId = SelectedProjectOption?.ProjectId;
+            var milestoneId = projectId is null ? null : SelectedMilestoneOption?.MilestoneId;
+
             var updated = new WorkTask
             {
                 Id = Selected.Id,
@@ -310,7 +426,7 @@ public sealed class TasksViewModel : ObservableObject
                 NextAction = Selected.Task.NextAction,
                 Blocker = Selected.Task.Blocker,
                 ProjectId = projectId,
-                MilestoneId = Selected.Task.MilestoneId,
+                MilestoneId = milestoneId,
                 CreatedAt = Selected.Task.CreatedAt,
                 UpdatedAt = Selected.Task.UpdatedAt,
                 LastWorkedAt = Selected.Task.LastWorkedAt

@@ -34,6 +34,19 @@ public sealed class InMemoryTaskStore : ITaskStore
     public int CountByProject(Guid projectId) =>
         _tasks.Values.Count(t => t.ProjectId == projectId);
 
+    public IReadOnlyList<WorkTask> ListByMilestone(Guid milestoneId) =>
+        _tasks.Values
+            .Where(t => t.MilestoneId == milestoneId)
+            .OrderByDescending(t => t.UpdatedAt)
+            .Select(Clone)
+            .ToList();
+
+    public int CountByMilestone(Guid milestoneId) =>
+        _tasks.Values.Count(t => t.MilestoneId == milestoneId);
+
+    public int CountDoneByMilestone(Guid milestoneId) =>
+        _tasks.Values.Count(t => t.MilestoneId == milestoneId && t.Status == Models.TaskStatus.Done);
+
     public void UnassignAllFromProject(Guid projectId)
     {
         var now = DateTimeOffset.UtcNow;
@@ -50,6 +63,30 @@ public sealed class InMemoryTaskStore : ITaskStore
                 NextAction = task.NextAction,
                 Blocker = task.Blocker,
                 ProjectId = null,
+                MilestoneId = null,
+                CreatedAt = task.CreatedAt,
+                UpdatedAt = now,
+                LastWorkedAt = task.LastWorkedAt
+            });
+        }
+    }
+
+    public void UnassignAllFromMilestone(Guid milestoneId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var task in _tasks.Values.Where(t => t.MilestoneId == milestoneId).ToList())
+        {
+            _tasks[task.Id] = Clone(new WorkTask
+            {
+                Id = task.Id,
+                Title = task.Title,
+                Status = task.Status,
+                Notes = task.Notes,
+                CurrentStatus = task.CurrentStatus,
+                LastProgress = task.LastProgress,
+                NextAction = task.NextAction,
+                Blocker = task.Blocker,
+                ProjectId = task.ProjectId,
                 MilestoneId = null,
                 CreatedAt = task.CreatedAt,
                 UpdatedAt = now,

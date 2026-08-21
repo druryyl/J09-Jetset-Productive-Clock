@@ -123,6 +123,53 @@ public sealed class TaskStore : ITaskStore
         return Convert.ToInt32(command.ExecuteScalar());
     }
 
+    public IReadOnlyList<WorkTask> ListByMilestone(Guid milestoneId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT Id, Title, Status, Notes, CurrentStatus, LastProgress, NextAction, Blocker,
+                   ProjectId, MilestoneId, CreatedAt, UpdatedAt, LastWorkedAt
+            FROM "Task"
+            WHERE MilestoneId = @milestoneId
+            ORDER BY UpdatedAt DESC;
+            """;
+        command.Parameters.AddWithValue("@milestoneId", milestoneId.ToString());
+
+        var results = new List<WorkTask>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadTask(reader));
+        }
+
+        return results;
+    }
+
+    public int CountByMilestone(Guid milestoneId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText = """SELECT COUNT(*) FROM "Task" WHERE MilestoneId = @milestoneId;""";
+        command.Parameters.AddWithValue("@milestoneId", milestoneId.ToString());
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
+    public int CountDoneByMilestone(Guid milestoneId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(*) FROM "Task"
+            WHERE MilestoneId = @milestoneId AND Status = @status;
+            """;
+        command.Parameters.AddWithValue("@milestoneId", milestoneId.ToString());
+        command.Parameters.AddWithValue("@status", (int)Models.TaskStatus.Done);
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
+
     public void UnassignAllFromProject(Guid projectId)
     {
         using var connection = _factory.Create();
@@ -136,6 +183,24 @@ public sealed class TaskStore : ITaskStore
             WHERE ProjectId = @projectId;
             """;
         command.Parameters.AddWithValue("@projectId", projectId.ToString());
+        command.Parameters.AddWithValue(
+            "@updatedAt",
+            DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        command.ExecuteNonQuery();
+    }
+
+    public void UnassignAllFromMilestone(Guid milestoneId)
+    {
+        using var connection = _factory.Create();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            UPDATE "Task" SET
+                MilestoneId = NULL,
+                UpdatedAt = @updatedAt
+            WHERE MilestoneId = @milestoneId;
+            """;
+        command.Parameters.AddWithValue("@milestoneId", milestoneId.ToString());
         command.Parameters.AddWithValue(
             "@updatedAt",
             DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));

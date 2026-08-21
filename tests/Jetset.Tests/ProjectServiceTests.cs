@@ -47,22 +47,23 @@ public class ProjectServiceTests : IDisposable
         }
     }
 
-    private static (ProjectService Projects, TaskService Tasks, InMemoryProjectStore ProjectStore, InMemoryTaskStore TaskStore, Action<DateTimeOffset> SetNow)
+    private static (ProjectService Projects, TaskService Tasks, InMemoryProjectStore ProjectStore, InMemoryTaskStore TaskStore, InMemoryMilestoneStore MilestoneStore, Action<DateTimeOffset> SetNow)
         CreateHarness(DateTimeOffset start)
     {
         var now = start;
         var taskStore = new InMemoryTaskStore();
         var projectStore = new InMemoryProjectStore(() => taskStore.List());
-        var projects = new ProjectService(projectStore, taskStore, () => now);
-        var tasks = new TaskService(taskStore, projectStore, () => now);
-        return (projects, tasks, projectStore, taskStore, value => now = value);
+        var milestoneStore = new InMemoryMilestoneStore();
+        var projects = new ProjectService(projectStore, taskStore, milestoneStore, () => now);
+        var tasks = new TaskService(taskStore, projectStore, milestoneStore, () => now);
+        return (projects, tasks, projectStore, taskStore, milestoneStore, value => now = value);
     }
 
     [Fact]
     public void Create_WithName_PersistsProject()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (projects, _, store, _, _) = CreateHarness(start);
+        var (projects, _, store, _, _, _) = CreateHarness(start);
 
         var project = projects.Create("Jetset");
 
@@ -79,7 +80,7 @@ public class ProjectServiceTests : IDisposable
     [Fact]
     public void Create_WithBlankName_Throws()
     {
-        var (projects, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (projects, _, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         Assert.Throws<ArgumentException>(() => projects.Create("   "));
         Assert.Throws<ArgumentException>(() => projects.Create(""));
@@ -89,7 +90,7 @@ public class ProjectServiceTests : IDisposable
     public void Create_WithDeadline_StoresDate()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (projects, _, store, _, _) = CreateHarness(start);
+        var (projects, _, store, _, _, _) = CreateHarness(start);
         var deadline = new DateOnly(2026, 9, 30);
 
         var project = projects.Create("School SIS", deadline);
@@ -102,7 +103,7 @@ public class ProjectServiceTests : IDisposable
     public void Update_ChangesNameAndDeadline()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (projects, _, _, _, setNow) = CreateHarness(start);
+        var (projects, _, _, _, _, setNow) = CreateHarness(start);
 
         var project = projects.Create("Original");
         setNow(start.AddMinutes(5));
@@ -120,7 +121,7 @@ public class ProjectServiceTests : IDisposable
     [Fact]
     public void Delete_UnassignsTasksThenRemovesProject()
     {
-        var (projects, tasks, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (projects, tasks, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         var project = projects.Create("To delete");
         var task = tasks.Create("Linked task", project.Id);
@@ -138,7 +139,7 @@ public class ProjectServiceTests : IDisposable
     [Fact]
     public void List_ReturnsTaskCounts()
     {
-        var (projects, tasks, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (projects, tasks, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         var empty = projects.Create("Empty");
         var one = projects.Create("One task");

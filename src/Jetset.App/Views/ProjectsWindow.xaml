@@ -79,6 +79,53 @@
                           IsEnabled="{Binding Selected.HasDeadline}"
                           Visibility="{Binding Selected.HasDeadline, Converter={StaticResource BoolToVis}}" />
 
+              <TextBlock Text="Milestones" FontWeight="SemiBold" Margin="0,4,0,4" />
+              <TextBlock Text="No milestones yet."
+                         FontSize="12"
+                         Foreground="{DynamicResource TextSecondaryBrush}"
+                         Margin="0,0,0,8"
+                         Visibility="{Binding HasMilestones, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
+              <ListBox ItemsSource="{Binding Milestones}"
+                       SelectedItem="{Binding SelectedMilestone}"
+                       Margin="0,0,0,8"
+                       MaxHeight="140"
+                       BorderBrush="{DynamicResource BorderBrush}"
+                       Background="{DynamicResource WindowBackgroundBrush}"
+                       Visibility="{Binding HasMilestones, Converter={StaticResource BoolToVis}}">
+                <ListBox.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Margin="2">
+                      <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+                      <TextBlock Text="{Binding ProgressText}" FontSize="11"
+                                 Foreground="{DynamicResource TextSecondaryBrush}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
+
+              <StackPanel Visibility="{Binding HasMilestoneSelection, Converter={StaticResource BoolToVis}}">
+                <TextBlock Text="Milestone name" Foreground="{DynamicResource TextSecondaryBrush}" />
+                <TextBox Text="{Binding SelectedMilestone.Name, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,4,0,8" Padding="4" />
+                <DockPanel Margin="0,0,0,8">
+                  <Button DockPanel.Dock="Right" Content="Down" Command="{Binding MoveMilestoneDownCommand}"
+                          Style="{DynamicResource SecondaryButton}" Margin="4,0,0,0" />
+                  <Button DockPanel.Dock="Right" Content="Up" Command="{Binding MoveMilestoneUpCommand}"
+                          Style="{DynamicResource SecondaryButton}" Margin="4,0,0,0" />
+                  <Button Content="Save milestone" Command="{Binding SaveMilestoneCommand}"
+                          Style="{DynamicResource SecondaryButton}" />
+                </DockPanel>
+                <Button Content="Delete milestone" Command="{Binding DeleteMilestoneCommand}"
+                        Margin="0,0,0,8" Style="{DynamicResource SecondaryButton}" />
+              </StackPanel>
+
+              <DockPanel Margin="0,0,0,12">
+                <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddMilestoneCommand}"
+                        Style="{DynamicResource SecondaryButton}" Margin="8,0,0,0" />
+                <TextBox Text="{Binding QuickAddMilestoneName, UpdateSourceTrigger=PropertyChanged}"
+                         Padding="4" VerticalAlignment="Center" />
+              </DockPanel>
+
               <TextBlock Text="Tasks" FontWeight="SemiBold" Margin="0,4,0,4" />
               <TextBlock Text="No tasks in this project."
                          FontSize="12"
@@ -93,6 +140,9 @@
                       <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
                       <TextBlock Text="{Binding StatusText}" FontSize="11"
                                  Foreground="{DynamicResource TextSecondaryBrush}" />
+                      <TextBlock Text="{Binding MilestoneDisplay}" FontSize="11"
+                                 Foreground="{DynamicResource TextSecondaryBrush}"
+                                 Visibility="{Binding HasMilestone, Converter={StaticResource BoolToVis}}" />
                     </StackPanel>
                   </DataTemplate>
                 </ItemsControl.ItemTemplate>

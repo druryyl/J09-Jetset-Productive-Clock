@@ -21,10 +21,12 @@ public sealed class AppServices
         SettingsStore = new SettingsStore(ConnectionFactory);
         TaskStore = new TaskStore(ConnectionFactory);
         ProjectStore = new ProjectStore(ConnectionFactory);
+        MilestoneStore = new MilestoneStore(ConnectionFactory);
         Clock = new ClockService();
         Sessions = new SessionService(SessionStore, () => Clock.Now);
-        Tasks = new TaskService(TaskStore, ProjectStore, () => Clock.Now);
-        Projects = new ProjectService(ProjectStore, TaskStore, () => Clock.Now);
+        Tasks = new TaskService(TaskStore, ProjectStore, MilestoneStore, () => Clock.Now);
+        Projects = new ProjectService(ProjectStore, TaskStore, MilestoneStore, () => Clock.Now);
+        Milestones = new MilestoneService(MilestoneStore, ProjectStore, TaskStore, () => Clock.Now);
         Notifications = new NotificationService();
         Startup = new StartupService();
         Settings = new SettingsService(SettingsStore, Startup);
@@ -38,10 +40,12 @@ public sealed class AppServices
     public SettingsStore SettingsStore { get; }
     public TaskStore TaskStore { get; }
     public ProjectStore ProjectStore { get; }
+    public MilestoneStore MilestoneStore { get; }
     public ClockService Clock { get; }
     public SessionService Sessions { get; }
     public TaskService Tasks { get; }
     public ProjectService Projects { get; }
+    public MilestoneService Milestones { get; }
     public NotificationService Notifications { get; }
     public StartupService Startup { get; }
     public SettingsService Settings { get; }

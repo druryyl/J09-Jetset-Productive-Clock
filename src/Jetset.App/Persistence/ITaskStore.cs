@@ -14,7 +14,15 @@ public interface ITaskStore
 
     int CountByProject(Guid projectId);
 
+    IReadOnlyList<WorkTask> ListByMilestone(Guid milestoneId);
+
+    int CountByMilestone(Guid milestoneId);
+
+    int CountDoneByMilestone(Guid milestoneId);
+
     void UnassignAllFromProject(Guid projectId);
+
+    void UnassignAllFromMilestone(Guid milestoneId);
 
     void Insert(WorkTask task);
 

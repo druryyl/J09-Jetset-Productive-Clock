@@ -8,32 +8,25 @@ public sealed class TaskService
 {
     private readonly ITaskStore _store;
     private readonly IProjectStore? _projectStore;
-    private readonly IMilestoneStore? _milestoneStore;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly HashSet<Guid> _resumedFromWaiting = [];
 
     public TaskService(ITaskStore store, Func<DateTimeOffset>? clock = null)
-        : this(store, projectStore: null, milestoneStore: null, clock)
-    {
-    }
-
-    public TaskService(ITaskStore store, IProjectStore? projectStore, Func<DateTimeOffset>? clock = null)
-        : this(store, projectStore, milestoneStore: null, clock)
+        : this(store, projectStore: null, clock)
     {
     }
 
     public TaskService(
         ITaskStore store,
         IProjectStore? projectStore,
-        IMilestoneStore? milestoneStore,
         Func<DateTimeOffset>? clock = null)
     {
         _store = store;
         _projectStore = projectStore;
-        _milestoneStore = milestoneStore;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
-    public WorkTask Create(string title, Guid? projectId = null)
+    public WorkTask Create(string title, Guid? projectId = null, TaskOrigin origin = TaskOrigin.Unplanned)
     {
         var trimmed = title.Trim();
         if (string.IsNullOrWhiteSpace(trimmed))
@@ -46,12 +39,34 @@ public sealed class TaskService
             EnsureProjectExists(pid);
         }
 
+        return InsertTask(trimmed, TaskStatus.Inbox, origin, projectId);
+    }
+
+    public WorkTask CaptureToInbox(string title, Guid? projectId = null)
+    {
+        var trimmed = title.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            throw new ArgumentException("Task title is required.", nameof(title));
+        }
+
+        if (projectId is { } pid)
+        {
+            EnsureProjectExists(pid);
+        }
+
+        return InsertTask(trimmed, TaskStatus.Inbox, TaskOrigin.Unplanned, projectId);
+    }
+
+    private WorkTask InsertTask(string title, TaskStatus status, TaskOrigin origin, Guid? projectId)
+    {
         var now = _clock();
         var task = new WorkTask
         {
             Id = Guid.NewGuid(),
-            Title = trimmed,
-            Status = TaskStatus.Active,
+            Title = title,
+            Status = status,
+            Origin = origin,
             ProjectId = projectId,
             CreatedAt = now,
             UpdatedAt = now
@@ -62,6 +77,8 @@ public sealed class TaskService
     }
 
     public WorkTask? Get(Guid id) => _store.Get(id);
+
+    public WorkTask? GetRunningTask() => _store.GetRunningTask();
 
     public TaskWithContext? GetTaskWithContext(Guid id)
     {
@@ -77,17 +94,10 @@ public sealed class TaskService
             projectName = _projectStore?.Get(projectId)?.Name;
         }
 
-        string? milestoneName = null;
-        if (task.MilestoneId is { } milestoneId)
-        {
-            milestoneName = _milestoneStore?.Get(milestoneId)?.Name;
-        }
-
         return new TaskWithContext
         {
             Task = task,
-            ProjectName = projectName,
-            MilestoneName = milestoneName
+            ProjectName = projectName
         };
     }
 
@@ -104,105 +114,49 @@ public sealed class TaskService
             return [];
         }
 
-        return _store.Search(trimmed);
+        var results = new Dictionary<Guid, WorkTask>();
+        foreach (var task in _store.Search(trimmed))
+        {
+            results[task.Id] = task;
+        }
+
+        if (_projectStore is not null)
+        {
+            var matchingProjectIds = _projectStore.List()
+                .Where(p => ContainsSearchTerm(p.ContextText, trimmed))
+                .Select(p => p.Id)
+                .ToHashSet();
+
+            if (matchingProjectIds.Count > 0)
+            {
+                foreach (var task in _store.List())
+                {
+                    if (task.ProjectId is { } projectId && matchingProjectIds.Contains(projectId))
+                    {
+                        results[task.Id] = task;
+                    }
+                }
+            }
+        }
+
+        return results.Values
+            .OrderByDescending(t => t.UpdatedAt)
+            .ToList();
     }
 
     public WorkTask AssignToProject(Guid taskId, Guid? projectId)
     {
-        var existing = _store.Get(taskId)
-            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+        var existing = RequireTask(taskId);
 
         if (projectId is { } pid)
         {
             EnsureProjectExists(pid);
         }
 
-        var projectChanged = existing.ProjectId != projectId;
-        var updated = new WorkTask
-        {
-            Id = existing.Id,
-            Title = existing.Title,
-            Status = existing.Status,
-            Notes = existing.Notes,
-            CurrentStatus = existing.CurrentStatus,
-            LastProgress = existing.LastProgress,
-            NextAction = existing.NextAction,
-            Blocker = existing.Blocker,
-            ProjectId = projectId,
-            MilestoneId = projectChanged ? null : existing.MilestoneId,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = _clock(),
-            LastWorkedAt = existing.LastWorkedAt
-        };
-
-        _store.Update(updated);
-        return updated;
-    }
-
-    public WorkTask AssignToMilestone(Guid taskId, Guid? milestoneId)
-    {
-        var existing = _store.Get(taskId)
-            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
-
-        if (milestoneId is { } mid)
-        {
-            if (existing.ProjectId is null)
-            {
-                throw new InvalidOperationException(
-                    "Task must belong to a project before assigning a milestone.");
-            }
-
-            EnsureMilestoneBelongsToProject(mid, existing.ProjectId.Value);
-        }
-
-        var updated = new WorkTask
-        {
-            Id = existing.Id,
-            Title = existing.Title,
-            Status = existing.Status,
-            Notes = existing.Notes,
-            CurrentStatus = existing.CurrentStatus,
-            LastProgress = existing.LastProgress,
-            NextAction = existing.NextAction,
-            Blocker = existing.Blocker,
-            ProjectId = existing.ProjectId,
-            MilestoneId = milestoneId,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = _clock(),
-            LastWorkedAt = existing.LastWorkedAt
-        };
-
-        _store.Update(updated);
-        return updated;
-    }
-
-    public WorkTask UpdateContext(
-        Guid taskId,
-        string? currentStatus,
-        string? lastProgress,
-        string? nextAction,
-        string? blocker,
-        string? notes)
-    {
-        var existing = _store.Get(taskId)
-            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
-
-        var updated = new WorkTask
-        {
-            Id = existing.Id,
-            Title = existing.Title,
-            Status = existing.Status,
-            Notes = NormalizeContextField(notes),
-            CurrentStatus = NormalizeContextField(currentStatus),
-            LastProgress = NormalizeContextField(lastProgress),
-            NextAction = NormalizeContextField(nextAction),
-            Blocker = NormalizeContextField(blocker),
-            ProjectId = existing.ProjectId,
-            MilestoneId = existing.MilestoneId,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = _clock(),
-            LastWorkedAt = existing.LastWorkedAt
-        };
+        var updated = CopyTask(
+            existing,
+            projectId: projectId,
+            updatedAt: _clock());
 
         _store.Update(updated);
         return updated;
@@ -218,53 +172,91 @@ public sealed class TaskService
             throw new ArgumentException("Task title is required.", nameof(task));
         }
 
-        var existing = _store.Get(task.Id)
-            ?? throw new InvalidOperationException($"Task {task.Id} was not found.");
+        var existing = RequireTask(task.Id);
 
         if (task.ProjectId is { } pid)
         {
             EnsureProjectExists(pid);
         }
 
-        var projectChanged = existing.ProjectId != task.ProjectId;
-        var milestoneId = projectChanged ? null : task.MilestoneId;
-
-        if (milestoneId is { } mid)
-        {
-            if (task.ProjectId is null)
-            {
-                throw new InvalidOperationException(
-                    "Task must belong to a project before assigning a milestone.");
-            }
-
-            EnsureMilestoneBelongsToProject(mid, task.ProjectId.Value);
-        }
-
-        var updated = new WorkTask
-        {
-            Id = existing.Id,
-            Title = trimmed,
-            Status = existing.Status,
-            Notes = NormalizeContextField(task.Notes),
-            CurrentStatus = NormalizeContextField(task.CurrentStatus),
-            LastProgress = NormalizeContextField(task.LastProgress),
-            NextAction = NormalizeContextField(task.NextAction),
-            Blocker = NormalizeContextField(task.Blocker),
-            ProjectId = task.ProjectId,
-            MilestoneId = milestoneId,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = _clock(),
-            LastWorkedAt = task.LastWorkedAt
-        };
+        var updated = CopyTask(
+            existing,
+            title: trimmed,
+            notes: NormalizeOptionalField(task.Notes),
+            projectId: task.ProjectId,
+            lastWorkedAt: task.LastWorkedAt,
+            updatedAt: _clock());
 
         _store.Update(updated);
         return updated;
     }
 
-    public WorkTask TransitionStatus(Guid taskId, TaskStatus newStatus)
+    public WorkTask StartTask(Guid taskId, TaskStatus leavingStatus = TaskStatus.Ready)
     {
-        var existing = _store.Get(taskId)
-            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+        if (leavingStatus is TaskStatus.Running or TaskStatus.Done or TaskStatus.Cancelled)
+        {
+            throw new ArgumentException(
+                "Leaving status must be a non-terminal, non-running state.",
+                nameof(leavingStatus));
+        }
+
+        var task = RequireTask(taskId);
+        if (!TaskStatusRules.CanStart(task.Status))
+        {
+            throw new InvalidOperationException(
+                $"Task \"{task.Title}\" cannot be started from status {task.Status}.");
+        }
+
+        var running = _store.GetRunningTask();
+        if (running is not null && running.Id != taskId)
+        {
+            var resolvedLeavingStatus = ResolveLeavingStatus(running.Id, leavingStatus);
+            PersistStatusChange(running, resolvedLeavingStatus);
+        }
+
+        if (task.Status == TaskStatus.Waiting)
+        {
+            _resumedFromWaiting.Add(taskId);
+        }
+
+        var now = _clock();
+        var started = CopyTask(
+            task,
+            status: TaskStatus.Running,
+            updatedAt: now,
+            lastWorkedAt: now);
+        _store.Update(started);
+        return started;
+    }
+
+    public WorkTask StopTask(Guid taskId, TaskStatus targetStatus = TaskStatus.Ready)
+    {
+        if (targetStatus is TaskStatus.Running or TaskStatus.Done or TaskStatus.Cancelled)
+        {
+            throw new ArgumentException(
+                "Stop target must be a non-terminal, non-running state.",
+                nameof(targetStatus));
+        }
+
+        var task = RequireTask(taskId);
+        if (task.Status != TaskStatus.Running)
+        {
+            throw new InvalidOperationException(
+                $"Task \"{task.Title}\" is not Running.");
+        }
+
+        _resumedFromWaiting.Remove(taskId);
+        return PersistStatusChange(task, targetStatus);
+    }
+
+    public WorkTask ChangeStatus(Guid taskId, TaskStatus newStatus)
+    {
+        var existing = RequireTask(taskId);
+
+        if (newStatus == TaskStatus.Running)
+        {
+            return StartTask(taskId);
+        }
 
         if (!TaskStatusRules.CanTransition(existing.Status, newStatus))
         {
@@ -277,56 +269,33 @@ public sealed class TaskService
             return existing;
         }
 
-        var updated = new WorkTask
+        if (existing.Status == TaskStatus.Running)
         {
-            Id = existing.Id,
-            Title = existing.Title,
-            Status = newStatus,
-            Notes = existing.Notes,
-            CurrentStatus = existing.CurrentStatus,
-            LastProgress = existing.LastProgress,
-            NextAction = existing.NextAction,
-            Blocker = existing.Blocker,
-            ProjectId = existing.ProjectId,
-            MilestoneId = existing.MilestoneId,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = _clock(),
-            LastWorkedAt = existing.LastWorkedAt
-        };
+            _resumedFromWaiting.Remove(taskId);
+        }
 
-        _store.Update(updated);
-        return updated;
+        return PersistStatusChange(existing, newStatus);
     }
+
+    public WorkTask TransitionStatus(Guid taskId, TaskStatus newStatus) =>
+        ChangeStatus(taskId, newStatus);
+
+    public WorkTask CompleteTask(Guid taskId) => ChangeStatus(taskId, TaskStatus.Done);
 
     public WorkTask RecordWorkStarted(Guid taskId)
     {
-        var existing = _store.Get(taskId)
-            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
-
+        var existing = RequireTask(taskId);
         var now = _clock();
-        var updated = new WorkTask
-        {
-            Id = existing.Id,
-            Title = existing.Title,
-            Status = existing.Status,
-            Notes = existing.Notes,
-            CurrentStatus = existing.CurrentStatus,
-            LastProgress = existing.LastProgress,
-            NextAction = existing.NextAction,
-            Blocker = existing.Blocker,
-            ProjectId = existing.ProjectId,
-            MilestoneId = existing.MilestoneId,
-            CreatedAt = existing.CreatedAt,
-            UpdatedAt = now,
-            LastWorkedAt = now
-        };
-
+        var updated = CopyTask(existing, updatedAt: now, lastWorkedAt: now);
         _store.Update(updated);
         return updated;
     }
 
+    public IReadOnlyList<WorkTask> ListByStatuses(IReadOnlyList<TaskStatus> statuses) =>
+        _store.ListByStatuses(statuses);
+
     public IReadOnlyList<WorkTask> ListActiveWork() =>
-        _store.ListByStatuses([TaskStatus.Active, TaskStatus.Blocked]);
+        _store.ListByStatuses([TaskStatus.Ready, TaskStatus.Waiting, TaskStatus.Inbox]);
 
     public bool IsEligibleForActiveWork(WorkTask task)
     {
@@ -336,8 +305,82 @@ public sealed class TaskService
 
     public void Delete(Guid id) => _store.Delete(id);
 
-    private static string? NormalizeContextField(string? value) =>
+    private TaskStatus ResolveLeavingStatus(Guid leavingTaskId, TaskStatus leavingStatus)
+    {
+        if (leavingStatus == TaskStatus.Ready && _resumedFromWaiting.Remove(leavingTaskId))
+        {
+            return TaskStatus.Waiting;
+        }
+
+        return leavingStatus;
+    }
+
+    private WorkTask PersistStatusChange(WorkTask existing, TaskStatus newStatus)
+    {
+        var now = _clock();
+        DateTimeOffset? completedAt = existing.CompletedAt;
+
+        if (newStatus == TaskStatus.Done)
+        {
+            completedAt = now;
+        }
+        else if (existing.Status is TaskStatus.Done or TaskStatus.Cancelled)
+        {
+            completedAt = null;
+        }
+
+        var updated = new WorkTask
+        {
+            Id = existing.Id,
+            Title = existing.Title,
+            Status = newStatus,
+            Origin = existing.Origin,
+            Notes = existing.Notes,
+            ProjectId = existing.ProjectId,
+            CreatedAt = existing.CreatedAt,
+            CompletedAt = completedAt,
+            UpdatedAt = now,
+            LastWorkedAt = existing.LastWorkedAt
+        };
+
+        _store.Update(updated);
+        return updated;
+    }
+
+    private WorkTask RequireTask(Guid taskId) =>
+        _store.Get(taskId)
+        ?? throw new InvalidOperationException($"Task {taskId} was not found.");
+
+    private static string? NormalizeOptionalField(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static WorkTask CopyTask(
+        WorkTask source,
+        string? title = null,
+        TaskStatus? status = null,
+        TaskOrigin? origin = null,
+        string? notes = null,
+        Guid? projectId = null,
+        DateTimeOffset? createdAt = null,
+        DateTimeOffset? completedAt = null,
+        DateTimeOffset? updatedAt = null,
+        DateTimeOffset? lastWorkedAt = null) =>
+        new()
+        {
+            Id = source.Id,
+            Title = title ?? source.Title,
+            Status = status ?? source.Status,
+            Origin = origin ?? source.Origin,
+            Notes = notes ?? source.Notes,
+            ProjectId = projectId ?? source.ProjectId,
+            CreatedAt = createdAt ?? source.CreatedAt,
+            CompletedAt = completedAt ?? source.CompletedAt,
+            UpdatedAt = updatedAt ?? source.UpdatedAt,
+            LastWorkedAt = lastWorkedAt ?? source.LastWorkedAt
+        };
+
+    private static bool ContainsSearchTerm(string? value, string query) =>
+        value is not null && value.Contains(query, StringComparison.OrdinalIgnoreCase);
 
     private void EnsureProjectExists(Guid projectId)
     {
@@ -349,23 +392,6 @@ public sealed class TaskService
         if (_projectStore.Get(projectId) is null)
         {
             throw new InvalidOperationException($"Project {projectId} was not found.");
-        }
-    }
-
-    private void EnsureMilestoneBelongsToProject(Guid milestoneId, Guid projectId)
-    {
-        if (_milestoneStore is null)
-        {
-            return;
-        }
-
-        var milestone = _milestoneStore.Get(milestoneId)
-            ?? throw new InvalidOperationException($"Milestone {milestoneId} was not found.");
-
-        if (milestone.ProjectId != projectId)
-        {
-            throw new InvalidOperationException(
-                $"Milestone {milestoneId} does not belong to project {projectId}.");
         }
     }
 }

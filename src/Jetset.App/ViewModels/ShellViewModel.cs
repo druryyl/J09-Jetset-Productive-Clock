@@ -29,7 +29,9 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         NavigateAnalyticsCommand = new RelayCommand(() => NavigateTo(ShellArea.Analytics));
 
         Focus.CompactModeChanged += OnFocusCompactModeChanged;
+        Focus.EditProjectContextRequested += (_, projectId) => NavigateToProject(projectId);
         Tasks.WorkStarted += (_, _) => NavigateTo(ShellArea.Focus);
+        Tasks.ViewProjectContextRequested += (_, projectId) => NavigateToProject(projectId);
         Projects.WorkStarted += (_, _) => NavigateTo(ShellArea.Focus);
         Search.WorkStarted += (_, _) => NavigateTo(ShellArea.Focus);
         UpdateShowNavigation();
@@ -127,8 +129,18 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
         {
             Analytics.Refresh();
         }
+        else if (area == ShellArea.Focus)
+        {
+            Focus.RefreshTaskLists();
+        }
 
         CurrentArea = area;
+    }
+
+    public void NavigateToProject(Guid projectId)
+    {
+        Projects.SelectProject(projectId);
+        NavigateTo(ShellArea.Projects);
     }
 
     private void OnFocusCompactModeChanged(object? sender, EventArgs e)

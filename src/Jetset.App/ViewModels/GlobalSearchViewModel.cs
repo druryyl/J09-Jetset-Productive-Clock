@@ -30,8 +30,6 @@ public sealed class GlobalSearchViewModel : ObservableObject
 
     public event EventHandler? WorkStarted;
 
-    public event EventHandler<ContextCaptureRequest>? ContextCaptureRequested;
-
     public string SearchText
     {
         get => _searchText;
@@ -65,14 +63,6 @@ public sealed class GlobalSearchViewModel : ObservableObject
         }
 
         var projectNames = _services.Projects.ListProjects().ToDictionary(p => p.Id, p => p.Name);
-        var milestoneNames = new Dictionary<Guid, string>();
-        foreach (var project in _services.Projects.ListProjects())
-        {
-            foreach (var milestone in _services.Milestones.ListByProject(project.Id))
-            {
-                milestoneNames[milestone.Id] = milestone.Name;
-            }
-        }
 
         foreach (var task in _services.Tasks.Search(SearchText))
         {
@@ -82,13 +72,7 @@ public sealed class GlobalSearchViewModel : ObservableObject
                 projectNames.TryGetValue(pid, out projectName);
             }
 
-            string? milestoneName = null;
-            if (task.MilestoneId is { } mid)
-            {
-                milestoneNames.TryGetValue(mid, out milestoneName);
-            }
-
-            Results.Add(new TaskListItemViewModel(task, projectName, milestoneName));
+            Results.Add(new TaskListItemViewModel(task, projectName));
         }
 
         ApplyWorkSessionState();
@@ -114,12 +98,7 @@ public sealed class GlobalSearchViewModel : ObservableObject
 
         try
         {
-            if (!TryPromptLeavingContext(out var leavingContext))
-            {
-                return;
-            }
-
-            _services.WorkExecution.StartWork(taskId, leavingContext: leavingContext);
+            _services.WorkExecution.StartWork(taskId);
             RunSearch();
             WorkStarted?.Invoke(this, EventArgs.Empty);
         }
@@ -138,12 +117,7 @@ public sealed class GlobalSearchViewModel : ObservableObject
 
         try
         {
-            if (!TryPromptLeavingContext(out var leavingContext))
-            {
-                return;
-            }
-
-            _services.WorkExecution.ResumeWork(taskId, leavingContext);
+            _services.WorkExecution.ResumeWork(taskId);
             RunSearch();
             WorkStarted?.Invoke(this, EventArgs.Empty);
         }
@@ -151,35 +125,6 @@ public sealed class GlobalSearchViewModel : ObservableObject
         {
             // Search is read-only; errors surface in Focus after navigation.
         }
-    }
-
-    private bool TryPromptLeavingContext(out WorkingContext? leavingContext)
-    {
-        leavingContext = null;
-        var task = _services.WorkExecution.GetLeavingTask();
-        if (task is null)
-        {
-            return true;
-        }
-
-        var request = new ContextCaptureRequest
-        {
-            Task = task,
-            Reason = ContextCaptureReason.Switch
-        };
-        ContextCaptureRequested?.Invoke(this, request);
-
-        if (request.Result == ContextCaptureResult.Cancelled)
-        {
-            return false;
-        }
-
-        if (request.Result == ContextCaptureResult.Saved)
-        {
-            leavingContext = request.Context;
-        }
-
-        return true;
     }
 
     private static bool TryParseTaskId(object? parameter, out Guid taskId)

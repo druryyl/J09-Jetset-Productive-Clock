@@ -14,7 +14,7 @@ public class SessionServiceTests
         var now = start;
         var store = new InMemorySessionStore();
         var taskStore = new InMemoryTaskStore();
-        var service = new SessionService(store, taskStore, null, () => now);
+        var service = new SessionService(store, taskStore, () => now);
         return (service, store, taskStore, value => now = value);
     }
 
@@ -24,7 +24,7 @@ public class SessionServiceTests
         {
             Id = Guid.NewGuid(),
             Title = title,
-            Status = TaskStatus.Active,
+            Status = TaskStatus.Ready,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -283,14 +283,14 @@ public class SessionServiceTests
         var store = new InMemorySessionStore();
         var taskStore = new InMemoryTaskStore();
         var now = start;
-        var service = new SessionService(store, taskStore, null, () => now);
+        var service = new SessionService(store, taskStore, () => now);
 
         StartSession(service, taskStore, start, "Implement API", TimerMode.Stopwatch, null);
         now = start.AddMinutes(20);
         service.Heartbeat();
 
         // Simulate restart with a new service over the same store
-        var restarted = new SessionService(store, taskStore, null, () => now.AddMinutes(5));
+        var restarted = new SessionService(store, taskStore, () => now.AddMinutes(5));
         var unfinished = restarted.ActiveSession;
 
         Assert.NotNull(unfinished);
@@ -352,32 +352,6 @@ public class SessionServiceTests
         Assert.NotNull(service.ActiveSession);
     }
 
-    [Fact]
-    public void SwitchTo_RecordsTaskSwitchEvent()
-    {
-        var start = new DateTimeOffset(2026, 8, 22, 9, 0, 0, TimeSpan.Zero);
-        var switchEvents = new InMemoryTaskSwitchEventStore();
-        var now = start;
-        var store = new InMemorySessionStore();
-        var taskStore = new InMemoryTaskStore();
-        var service = new SessionService(store, taskStore, switchEvents, () => now);
-
-        var firstTaskId = CreateTask(taskStore, "First", start);
-        var secondTaskId = CreateTask(taskStore, "Second", start);
-
-        service.Start(firstTaskId, TimerMode.Stopwatch, null);
-        now = start.AddMinutes(5);
-        service.Start(secondTaskId, TimerMode.Stopwatch, null);
-        now = start.AddMinutes(12);
-        service.SwitchTo(store.GetInProgressSessions().First(s => s.TaskId == firstTaskId).Id);
-
-        var events = switchEvents.ListBetween(start, start.AddDays(1));
-        Assert.Equal(2, events.Count);
-        Assert.Equal(firstTaskId, events[0].FromTaskId);
-        Assert.Equal(secondTaskId, events[0].ToTaskId);
-        Assert.Equal(secondTaskId, events[1].FromTaskId);
-        Assert.Equal(firstTaskId, events[1].ToTaskId);
-    }
 }
 
 public class SessionCalculationsTests

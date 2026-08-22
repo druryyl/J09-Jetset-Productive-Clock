@@ -22,21 +22,15 @@ public sealed class InMemoryTaskStore : ITaskStore
             .Select(Clone)
             .ToList();
 
-    public IReadOnlyList<WorkTask> Search(string query)
-    {
-        return _tasks.Values
+    public IReadOnlyList<WorkTask> Search(string query) =>
+        _tasks.Values
             .Where(t => MatchesSearchQuery(t, query))
             .OrderByDescending(t => t.UpdatedAt)
             .Select(Clone)
             .ToList();
-    }
 
     private static bool MatchesSearchQuery(WorkTask task, string query) =>
         task.Title.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-        ContainsField(task.CurrentStatus, query) ||
-        ContainsField(task.LastProgress, query) ||
-        ContainsField(task.NextAction, query) ||
-        ContainsField(task.Blocker, query) ||
         ContainsField(task.Notes, query);
 
     private static bool ContainsField(string? value, string query) =>
@@ -58,21 +52,19 @@ public sealed class InMemoryTaskStore : ITaskStore
             .ToList();
     }
 
+    public WorkTask? GetRunningTask()
+    {
+        var running = _tasks.Values.Where(t => t.Status == Models.TaskStatus.Running).ToList();
+        return running.Count switch
+        {
+            0 => null,
+            1 => Clone(running[0]),
+            _ => throw new InvalidOperationException("Multiple Running tasks found.")
+        };
+    }
+
     public int CountByProject(Guid projectId) =>
         _tasks.Values.Count(t => t.ProjectId == projectId);
-
-    public IReadOnlyList<WorkTask> ListByMilestone(Guid milestoneId) =>
-        _tasks.Values
-            .Where(t => t.MilestoneId == milestoneId)
-            .OrderByDescending(t => t.UpdatedAt)
-            .Select(Clone)
-            .ToList();
-
-    public int CountByMilestone(Guid milestoneId) =>
-        _tasks.Values.Count(t => t.MilestoneId == milestoneId);
-
-    public int CountDoneByMilestone(Guid milestoneId) =>
-        _tasks.Values.Count(t => t.MilestoneId == milestoneId && t.Status == Models.TaskStatus.Done);
 
     public void UnassignAllFromProject(Guid projectId)
     {
@@ -84,38 +76,11 @@ public sealed class InMemoryTaskStore : ITaskStore
                 Id = task.Id,
                 Title = task.Title,
                 Status = task.Status,
+                Origin = task.Origin,
                 Notes = task.Notes,
-                CurrentStatus = task.CurrentStatus,
-                LastProgress = task.LastProgress,
-                NextAction = task.NextAction,
-                Blocker = task.Blocker,
                 ProjectId = null,
-                MilestoneId = null,
                 CreatedAt = task.CreatedAt,
-                UpdatedAt = now,
-                LastWorkedAt = task.LastWorkedAt
-            });
-        }
-    }
-
-    public void UnassignAllFromMilestone(Guid milestoneId)
-    {
-        var now = DateTimeOffset.UtcNow;
-        foreach (var task in _tasks.Values.Where(t => t.MilestoneId == milestoneId).ToList())
-        {
-            _tasks[task.Id] = Clone(new WorkTask
-            {
-                Id = task.Id,
-                Title = task.Title,
-                Status = task.Status,
-                Notes = task.Notes,
-                CurrentStatus = task.CurrentStatus,
-                LastProgress = task.LastProgress,
-                NextAction = task.NextAction,
-                Blocker = task.Blocker,
-                ProjectId = task.ProjectId,
-                MilestoneId = null,
-                CreatedAt = task.CreatedAt,
+                CompletedAt = task.CompletedAt,
                 UpdatedAt = now,
                 LastWorkedAt = task.LastWorkedAt
             });
@@ -141,14 +106,11 @@ public sealed class InMemoryTaskStore : ITaskStore
         Id = t.Id,
         Title = t.Title,
         Status = t.Status,
+        Origin = t.Origin,
         Notes = t.Notes,
-        CurrentStatus = t.CurrentStatus,
-        LastProgress = t.LastProgress,
-        NextAction = t.NextAction,
-        Blocker = t.Blocker,
         ProjectId = t.ProjectId,
-        MilestoneId = t.MilestoneId,
         CreatedAt = t.CreatedAt,
+        CompletedAt = t.CompletedAt,
         UpdatedAt = t.UpdatedAt,
         LastWorkedAt = t.LastWorkedAt
     };

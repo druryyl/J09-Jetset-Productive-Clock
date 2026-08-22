@@ -62,6 +62,84 @@ public sealed class MigrationValidationService
                     errors.Add($"{mismatchCount} work session(s) have a task name that does not match the linked task title.");
                 }
             }
+
+            foreach (var column in new[] { "MilestoneId", "CurrentStatus", "LastProgress", "NextAction", "Blocker" })
+            {
+                if (ColumnExists(connection, "Task", column))
+                {
+                    errors.Add($"Deprecated Task column '{column}' is still present.");
+                }
+            }
+
+            foreach (var column in new[] { "Origin", "CompletedAt" })
+            {
+                if (!ColumnExists(connection, "Task", column))
+                {
+                    errors.Add($"Required Task column '{column}' is missing.");
+                }
+            }
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText =
+                    """
+                    SELECT COUNT(*) FROM "Task"
+                    WHERE Status NOT IN (@inbox, @ready, @running, @waiting, @done, @cancelled);
+                    """;
+                command.Parameters.AddWithValue("@inbox", (int)Models.TaskStatus.Inbox);
+                command.Parameters.AddWithValue("@ready", (int)Models.TaskStatus.Ready);
+                command.Parameters.AddWithValue("@running", (int)Models.TaskStatus.Running);
+                command.Parameters.AddWithValue("@waiting", (int)Models.TaskStatus.Waiting);
+                command.Parameters.AddWithValue("@done", (int)Models.TaskStatus.Done);
+                command.Parameters.AddWithValue("@cancelled", (int)Models.TaskStatus.Cancelled);
+                var invalidStatusCount = Convert.ToInt64(command.ExecuteScalar());
+                if (invalidStatusCount > 0)
+                {
+                    errors.Add($"{invalidStatusCount} task(s) have an invalid status value.");
+                }
+            }
+
+            using (var command = connection.CreateCommand())
+            {
+                command.CommandText =
+                    """
+                    SELECT COUNT(*) FROM "Task" WHERE Status = @running;
+                    """;
+                command.Parameters.AddWithValue("@running", (int)Models.TaskStatus.Running);
+                var runningCount = Convert.ToInt64(command.ExecuteScalar());
+                if (runningCount > 1)
+                {
+                    errors.Add($"{runningCount} tasks are Running; at most one is allowed.");
+                }
+            }
+        }
+
+        if (TableExists(connection, "Project") && !ColumnExists(connection, "Project", "ContextText"))
+        {
+            errors.Add("Required Project column 'ContextText' is missing.");
+        }
+
+        if (TableExists(connection, "WorkInterval"))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                SELECT COUNT(*) FROM WorkInterval i
+                WHERE NOT EXISTS (SELECT 1 FROM WorkSession s WHERE s.Id = i.WorkSessionId);
+                """;
+            var orphanIntervalCount = Convert.ToInt64(command.ExecuteScalar());
+            if (orphanIntervalCount > 0)
+            {
+                errors.Add($"{orphanIntervalCount} work interval(s) reference missing sessions.");
+            }
+        }
+
+        foreach (var table in new[] { "Milestone", "ContextSnapshot", "TaskSwitchEvent" })
+        {
+            if (TableExists(connection, table))
+            {
+                errors.Add($"Deprecated table '{table}' is still present.");
+            }
         }
 
         return new MigrationValidationResult
@@ -81,5 +159,19 @@ public sealed class MigrationValidationService
             """;
         command.Parameters.AddWithValue("@name", tableName);
         return Convert.ToInt32(command.ExecuteScalar()) == 1;
+    }
+
+    private static bool ColumnExists(SqliteConnection connection, string table, string column)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT COUNT(*)
+            FROM pragma_table_info(@table)
+            WHERE name = @column;
+            """;
+        command.Parameters.AddWithValue("@table", table);
+        command.Parameters.AddWithValue("@column", column);
+        return Convert.ToInt32(command.ExecuteScalar()) > 0;
     }
 }

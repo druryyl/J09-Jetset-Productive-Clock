@@ -12,7 +12,11 @@ public sealed class SchemaInitializer
         new Migration004_AddMilestoneTable(),
         new Migration005_AddContextSnapshotTable(),
         new Migration006_AddWorkSessionTaskId(),
-        new Migration007_AddTaskSwitchEventTable()
+        new Migration007_AddTaskSwitchEventTable(),
+        new Migration008_TaskLifecycleRealignment(),
+        new Migration009_AddProjectContextText(),
+        new Migration010_MigrateTaskContextToProject(),
+        new Migration011_SchemaCleanup()
     ];
 
     private readonly SqliteConnectionFactory _factory;

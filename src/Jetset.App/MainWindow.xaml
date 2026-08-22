@@ -135,25 +135,8 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Margin="0,0,8,0">
                           <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
-                          <TextBlock Text="{Binding ProjectDisplay}" FontSize="11"
-                                     Foreground="{DynamicResource TextSecondaryBrush}"
-                                     Visibility="{Binding HasProject, Converter={StaticResource BoolToVis}}" />
-                          <TextBlock Text="{Binding CurrentStatus, StringFormat=Status: {0}}"
-                                     TextWrapping="Wrap" FontSize="11" Margin="0,4,0,0"
-                                     Foreground="{DynamicResource TextSecondaryBrush}"
-                                     Visibility="{Binding HasCurrentStatusDisplay, Converter={StaticResource BoolToVis}}" />
-                          <TextBlock Text="{Binding LastProgress, StringFormat=Progress: {0}}"
-                                     TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource TextSecondaryBrush}"
-                                     Visibility="{Binding HasLastProgressDisplay, Converter={StaticResource BoolToVis}}" />
-                          <TextBlock Text="{Binding NextAction, StringFormat=Next: {0}}"
-                                     TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource TextSecondaryBrush}"
-                                     Visibility="{Binding HasNextActionDisplay, Converter={StaticResource BoolToVis}}" />
-                          <TextBlock Text="{Binding BlockerDisplay, StringFormat=Blocker: {0}}"
-                                     TextWrapping="Wrap" FontSize="11" Margin="0,2,0,0"
-                                     Foreground="{DynamicResource PausedBrush}"
-                                     Visibility="{Binding HasBlocker, Converter={StaticResource BoolToVis}}" />
+                          <TextBlock Text="{Binding SearchSubtitle}" FontSize="11"
+                                     Foreground="{DynamicResource TextSecondaryBrush}" />
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                           <Button Content="Start"

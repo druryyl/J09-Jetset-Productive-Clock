@@ -21,10 +21,28 @@ public enum StatusFilterMode
 {
     All,
     ActiveWork,
-    Active,
-    Blocked,
+    Inbox,
+    Ready,
+    Running,
+    Waiting,
     Done,
     Cancelled
+}
+
+public enum OriginFilterMode
+{
+    All,
+    Planned,
+    Unplanned
+}
+
+public sealed class OriginFilterOption
+{
+    public OriginFilterMode Mode { get; init; }
+
+    public required string DisplayName { get; init; }
+
+    public override string ToString() => DisplayName;
 }
 
 public sealed class ProjectFilterOption
@@ -56,15 +74,6 @@ public sealed class ProjectAssignOption
     public override string ToString() => DisplayName;
 }
 
-public sealed class MilestoneAssignOption
-{
-    public Guid? MilestoneId { get; init; }
-
-    public required string DisplayName { get; init; }
-
-    public override string ToString() => DisplayName;
-}
-
 public sealed class TasksViewModel : ObservableObject
 {
     private readonly AppServices _services;
@@ -73,62 +82,69 @@ public sealed class TasksViewModel : ObservableObject
     private string _quickAddTitle = string.Empty;
     private ProjectFilterOption? _selectedFilter;
     private StatusFilterOption? _selectedStatusFilter;
+    private OriginFilterOption? _selectedOriginFilter;
     private ProjectAssignOption? _selectedProjectOption;
-    private MilestoneAssignOption? _selectedMilestoneOption;
     private TaskStatus _loadedStatus;
     private string? _message;
-    private string _latestSnapshotSummary = string.Empty;
     private string _focusTimeText = string.Empty;
     private bool _suppressFilterReload;
-    private bool _suppressMilestoneRebuild;
 
     public TasksViewModel(AppServices services)
     {
         _services = services;
         Items = new ObservableCollection<TaskListItemViewModel>();
-        Snapshots = new ObservableCollection<ContextSnapshotItemViewModel>();
         FilterOptions = new ObservableCollection<ProjectFilterOption>();
         StatusFilterOptions = new ObservableCollection<StatusFilterOption>
         {
             new() { Mode = StatusFilterMode.All, DisplayName = "All statuses" },
             new() { Mode = StatusFilterMode.ActiveWork, DisplayName = "Active work" },
-            new() { Mode = StatusFilterMode.Active, DisplayName = "Active" },
-            new() { Mode = StatusFilterMode.Blocked, DisplayName = "Blocked" },
+            new() { Mode = StatusFilterMode.Inbox, DisplayName = "Inbox" },
+            new() { Mode = StatusFilterMode.Ready, DisplayName = "Ready" },
+            new() { Mode = StatusFilterMode.Running, DisplayName = "Running" },
+            new() { Mode = StatusFilterMode.Waiting, DisplayName = "Waiting" },
             new() { Mode = StatusFilterMode.Done, DisplayName = "Done" },
             new() { Mode = StatusFilterMode.Cancelled, DisplayName = "Cancelled" }
         };
+        OriginFilterOptions = new ObservableCollection<OriginFilterOption>
+        {
+            new() { Mode = OriginFilterMode.All, DisplayName = "All origins" },
+            new() { Mode = OriginFilterMode.Planned, DisplayName = "Planned" },
+            new() { Mode = OriginFilterMode.Unplanned, DisplayName = "Unplanned" }
+        };
         ProjectOptions = new ObservableCollection<ProjectAssignOption>();
-        MilestoneOptions = new ObservableCollection<MilestoneAssignOption>();
         StatusOptions = Enum.GetValues<TaskStatus>();
 
         AddTaskCommand = new RelayCommand(AddTask, CanAddTask);
         SaveCommand = new RelayCommand(Save, () => Selected is not null);
         DeleteCommand = new RelayCommand(Delete, () => Selected is not null);
         ReopenCommand = new RelayCommand(Reopen, () => Selected?.CanReopen == true);
-        CaptureSnapshotCommand = new RelayCommand(CaptureSnapshot, () => Selected is not null);
         StartWorkCommand = new RelayCommand(BeginWork, CanExecuteStartWork);
         StartWorkForTaskCommand = new RelayCommand(BeginWorkForTask);
         ResumeWorkCommand = new RelayCommand(ResumeWork, CanExecuteResumeWork);
         ResumeWorkForTaskCommand = new RelayCommand(ResumeWorkForTask);
+        SwitchAndMarkWaitingCommand = new RelayCommand(SwitchAndMarkWaiting, CanExecuteSwitchAndMarkWaiting);
+        SwitchAndMarkWaitingForTaskCommand = new RelayCommand(SwitchAndMarkWaitingForTask);
+        SetStatusFilterCommand = new RelayCommand(SetStatusFilter);
+        ViewProjectContextCommand = new RelayCommand(ViewProjectContext, () => Selected?.HasProject == true);
         RefreshCommand = new RelayCommand(Load);
 
         RebuildProjectOptions();
         _selectedFilter = FilterOptions[0];
-        _selectedStatusFilter = StatusFilterOptions[0];
+        _selectedStatusFilter = StatusFilterOptions.FirstOrDefault(o => o.Mode == StatusFilterMode.Inbox)
+            ?? StatusFilterOptions[0];
+        _selectedOriginFilter = OriginFilterOptions[0];
         Load();
     }
 
     public ObservableCollection<TaskListItemViewModel> Items { get; }
 
-    public ObservableCollection<ContextSnapshotItemViewModel> Snapshots { get; }
-
     public ObservableCollection<ProjectFilterOption> FilterOptions { get; }
 
     public ObservableCollection<StatusFilterOption> StatusFilterOptions { get; }
 
-    public ObservableCollection<ProjectAssignOption> ProjectOptions { get; }
+    public ObservableCollection<OriginFilterOption> OriginFilterOptions { get; }
 
-    public ObservableCollection<MilestoneAssignOption> MilestoneOptions { get; }
+    public ObservableCollection<ProjectAssignOption> ProjectOptions { get; }
 
     public TaskStatus[] StatusOptions { get; }
 
@@ -136,16 +152,18 @@ public sealed class TasksViewModel : ObservableObject
     public RelayCommand SaveCommand { get; }
     public RelayCommand DeleteCommand { get; }
     public RelayCommand ReopenCommand { get; }
-    public RelayCommand CaptureSnapshotCommand { get; }
     public RelayCommand StartWorkCommand { get; }
     public RelayCommand StartWorkForTaskCommand { get; }
     public RelayCommand ResumeWorkCommand { get; }
     public RelayCommand ResumeWorkForTaskCommand { get; }
+    public RelayCommand SwitchAndMarkWaitingCommand { get; }
+    public RelayCommand SwitchAndMarkWaitingForTaskCommand { get; }
+    public RelayCommand SetStatusFilterCommand { get; }
+    public RelayCommand ViewProjectContextCommand { get; }
     public RelayCommand RefreshCommand { get; }
 
     public event EventHandler? WorkStarted;
-
-    public event EventHandler<ContextCaptureRequest>? ContextCaptureRequested;
+    public event EventHandler<Guid>? ViewProjectContextRequested;
 
     public TaskListItemViewModel? Selected
     {
@@ -154,26 +172,42 @@ public sealed class TasksViewModel : ObservableObject
         {
             if (SetProperty(ref _selected, value))
             {
-                _loadedStatus = value?.Status ?? TaskStatus.Active;
+                _loadedStatus = value?.Status ?? TaskStatus.Ready;
                 OnPropertyChanged(nameof(HasSelection));
                 OnPropertyChanged(nameof(CanReopenSelected));
                 OnPropertyChanged(nameof(CanStartWorkSelected));
                 OnPropertyChanged(nameof(CanResumeWorkSelected));
+                OnPropertyChanged(nameof(CanSwitchWorkSelected));
                 SaveCommand.RaiseCanExecuteChanged();
                 DeleteCommand.RaiseCanExecuteChanged();
                 ReopenCommand.RaiseCanExecuteChanged();
-                CaptureSnapshotCommand.RaiseCanExecuteChanged();
                 StartWorkCommand.RaiseCanExecuteChanged();
                 ResumeWorkCommand.RaiseCanExecuteChanged();
+                SwitchAndMarkWaitingCommand.RaiseCanExecuteChanged();
+                ViewProjectContextCommand.RaiseCanExecuteChanged();
                 SyncSelectedProjectOption();
-                RebuildMilestoneOptions(SelectedProjectOption?.ProjectId);
-                SyncSelectedMilestoneOption();
-                OnPropertyChanged(nameof(CanAssignMilestone));
-                LoadSnapshots();
                 LoadFocusTime();
+                OnPropertyChanged(nameof(EditableStatusOptions));
             }
         }
     }
+
+    public bool CanSwitchTasks => _services.Sessions.ActiveSession is not null;
+
+    public bool IsInboxFilterSelected => SelectedStatusFilter?.Mode == StatusFilterMode.Inbox;
+
+    public bool IsReadyFilterSelected => SelectedStatusFilter?.Mode == StatusFilterMode.Ready;
+
+    public bool IsWaitingFilterSelected => SelectedStatusFilter?.Mode == StatusFilterMode.Waiting;
+
+    public bool IsDoneFilterSelected => SelectedStatusFilter?.Mode == StatusFilterMode.Done;
+
+    public bool IsAllStatusesFilterSelected => SelectedStatusFilter?.Mode == StatusFilterMode.All;
+
+    public TaskStatus[] EditableStatusOptions =>
+        Selected?.Status == TaskStatus.Running
+            ? [TaskStatus.Running, TaskStatus.Ready, TaskStatus.Waiting, TaskStatus.Done, TaskStatus.Cancelled]
+            : StatusOptions.Where(s => s != TaskStatus.Running).ToArray();
 
     public string FocusTimeText
     {
@@ -187,29 +221,13 @@ public sealed class TasksViewModel : ObservableObject
 
     public bool HasItems => Items.Count > 0;
 
-    public bool HasSnapshots => Snapshots.Count > 0;
-
-    public bool HasLatestSnapshot => !string.IsNullOrWhiteSpace(LatestSnapshotSummary);
-
-    public string LatestSnapshotSummary
-    {
-        get => _latestSnapshotSummary;
-        private set
-        {
-            if (SetProperty(ref _latestSnapshotSummary, value))
-            {
-                OnPropertyChanged(nameof(HasLatestSnapshot));
-            }
-        }
-    }
-
-    public bool CanAssignMilestone => SelectedProjectOption?.ProjectId is not null;
-
     public bool CanReopenSelected => Selected?.CanReopen == true;
 
     public bool CanResumeWorkSelected => Selected?.CanResumeWork == true;
 
     public bool CanStartWorkSelected => Selected?.CanStartWork == true;
+
+    public bool CanSwitchWorkSelected => CanSwitchTasks && CanStartWorkSelected;
 
     public string SearchText
     {
@@ -247,32 +265,22 @@ public sealed class TasksViewModel : ObservableObject
         }
     }
 
-    public ProjectAssignOption? SelectedProjectOption
+    public OriginFilterOption? SelectedOriginFilter
     {
-        get => _selectedProjectOption;
+        get => _selectedOriginFilter;
         set
         {
-            if (SetProperty(ref _selectedProjectOption, value))
+            if (SetProperty(ref _selectedOriginFilter, value) && !_suppressFilterReload)
             {
-                if (!_suppressMilestoneRebuild)
-                {
-                    RebuildMilestoneOptions(value?.ProjectId);
-                    if (SelectedMilestoneOption?.MilestoneId is not null &&
-                        MilestoneOptions.All(m => m.MilestoneId != SelectedMilestoneOption.MilestoneId))
-                    {
-                        SelectedMilestoneOption = MilestoneOptions[0];
-                    }
-
-                    OnPropertyChanged(nameof(CanAssignMilestone));
-                }
+                Load();
             }
         }
     }
 
-    public MilestoneAssignOption? SelectedMilestoneOption
+    public ProjectAssignOption? SelectedProjectOption
     {
-        get => _selectedMilestoneOption;
-        set => SetProperty(ref _selectedMilestoneOption, value);
+        get => _selectedProjectOption;
+        set => SetProperty(ref _selectedProjectOption, value);
     }
 
     public string QuickAddTitle
@@ -349,38 +357,6 @@ public sealed class TasksViewModel : ObservableObject
         }
     }
 
-    private void RebuildMilestoneOptions(Guid? projectId)
-    {
-        var previousMilestoneId = SelectedMilestoneOption?.MilestoneId;
-
-        MilestoneOptions.Clear();
-        MilestoneOptions.Add(new MilestoneAssignOption { DisplayName = "None", MilestoneId = null });
-
-        if (projectId is { } pid)
-        {
-            foreach (var milestone in _services.Milestones.ListByProject(pid))
-            {
-                MilestoneOptions.Add(new MilestoneAssignOption
-                {
-                    DisplayName = milestone.Name,
-                    MilestoneId = milestone.Id
-                });
-            }
-        }
-
-        _suppressMilestoneRebuild = true;
-        try
-        {
-            SelectedMilestoneOption = previousMilestoneId is { } mid
-                ? MilestoneOptions.FirstOrDefault(m => m.MilestoneId == mid) ?? MilestoneOptions[0]
-                : MilestoneOptions[0];
-        }
-        finally
-        {
-            _suppressMilestoneRebuild = false;
-        }
-    }
-
     private void SyncSelectedProjectOption()
     {
         if (Selected is null)
@@ -389,54 +365,31 @@ public sealed class TasksViewModel : ObservableObject
             return;
         }
 
-        _suppressMilestoneRebuild = true;
-        try
-        {
-            SelectedProjectOption = ProjectOptions.FirstOrDefault(p => p.ProjectId == Selected.ProjectId)
-                ?? ProjectOptions[0];
-        }
-        finally
-        {
-            _suppressMilestoneRebuild = false;
-        }
-    }
-
-    private void SyncSelectedMilestoneOption()
-    {
-        if (Selected is null)
-        {
-            SelectedMilestoneOption = null;
-            return;
-        }
-
-        SelectedMilestoneOption = MilestoneOptions.FirstOrDefault(m => m.MilestoneId == Selected.MilestoneId)
-            ?? MilestoneOptions[0];
+        SelectedProjectOption = ProjectOptions.FirstOrDefault(p => p.ProjectId == Selected.ProjectId)
+            ?? ProjectOptions[0];
     }
 
     private Dictionary<Guid, string> BuildProjectNameMap() =>
         _services.Projects.ListProjects().ToDictionary(p => p.Id, p => p.Name);
 
-    private Dictionary<Guid, string> BuildMilestoneNameMap()
-    {
-        var map = new Dictionary<Guid, string>();
-        foreach (var project in _services.Projects.ListProjects())
+    private static bool MatchesOriginFilter(WorkTask task, OriginFilterMode mode) =>
+        mode switch
         {
-            foreach (var milestone in _services.Milestones.ListByProject(project.Id))
-            {
-                map[milestone.Id] = milestone.Name;
-            }
-        }
-
-        return map;
-    }
+            OriginFilterMode.All => true,
+            OriginFilterMode.Planned => task.Origin == TaskOrigin.Planned,
+            OriginFilterMode.Unplanned => task.Origin == TaskOrigin.Unplanned,
+            _ => true
+        };
 
     private static bool MatchesStatusFilter(WorkTask task, StatusFilterMode mode) =>
         mode switch
         {
             StatusFilterMode.All => true,
             StatusFilterMode.ActiveWork => TaskStatusRules.IsEligibleForActiveWork(task.Status),
-            StatusFilterMode.Active => task.Status == TaskStatus.Active,
-            StatusFilterMode.Blocked => task.Status == TaskStatus.Blocked,
+            StatusFilterMode.Inbox => task.Status == TaskStatus.Inbox,
+            StatusFilterMode.Ready => task.Status == TaskStatus.Ready,
+            StatusFilterMode.Running => task.Status == TaskStatus.Running,
+            StatusFilterMode.Waiting => task.Status == TaskStatus.Waiting,
             StatusFilterMode.Done => task.Status == TaskStatus.Done,
             StatusFilterMode.Cancelled => task.Status == TaskStatus.Cancelled,
             _ => true
@@ -450,7 +403,6 @@ public sealed class TasksViewModel : ObservableObject
         Items.Clear();
 
         var projectNames = BuildProjectNameMap();
-        var milestoneNames = BuildMilestoneNameMap();
         IEnumerable<WorkTask> tasks;
 
         if (!string.IsNullOrWhiteSpace(SearchText))
@@ -478,6 +430,9 @@ public sealed class TasksViewModel : ObservableObject
         var statusMode = SelectedStatusFilter?.Mode ?? StatusFilterMode.All;
         tasks = tasks.Where(t => MatchesStatusFilter(t, statusMode));
 
+        var originMode = SelectedOriginFilter?.Mode ?? OriginFilterMode.All;
+        tasks = tasks.Where(t => MatchesOriginFilter(t, originMode));
+
         foreach (var task in tasks)
         {
             string? projectName = null;
@@ -486,13 +441,7 @@ public sealed class TasksViewModel : ObservableObject
                 projectNames.TryGetValue(pid, out projectName);
             }
 
-            string? milestoneName = null;
-            if (task.MilestoneId is { } mid)
-            {
-                milestoneNames.TryGetValue(mid, out milestoneName);
-            }
-
-            Items.Add(new TaskListItemViewModel(task, projectName, milestoneName));
+            Items.Add(new TaskListItemViewModel(task, projectName));
         }
 
         ApplyWorkSessionState();
@@ -502,8 +451,16 @@ public sealed class TasksViewModel : ObservableObject
             : null;
 
         OnPropertyChanged(nameof(HasItems));
+        OnPropertyChanged(nameof(IsInboxFilterSelected));
+        OnPropertyChanged(nameof(IsReadyFilterSelected));
+        OnPropertyChanged(nameof(IsWaitingFilterSelected));
+        OnPropertyChanged(nameof(IsDoneFilterSelected));
+        OnPropertyChanged(nameof(IsAllStatusesFilterSelected));
+        OnPropertyChanged(nameof(CanSwitchTasks));
+        OnPropertyChanged(nameof(CanSwitchWorkSelected));
         StartWorkCommand.RaiseCanExecuteChanged();
         ResumeWorkCommand.RaiseCanExecuteChanged();
+        SwitchAndMarkWaitingCommand.RaiseCanExecuteChanged();
     }
 
     private void ApplyWorkSessionState()
@@ -513,6 +470,7 @@ public sealed class TasksViewModel : ObservableObject
         {
             item.HasPausedSession = execution.HasPausedSession(item.Id);
             item.IsActiveSession = execution.IsTaskFocused(item.Id);
+            item.ShowSwitchActions = CanSwitchTasks && item.CanStartWork;
         }
     }
 
@@ -538,12 +496,7 @@ public sealed class TasksViewModel : ObservableObject
         Message = null;
         try
         {
-            if (!TryPromptLeavingContext(out var leavingContext))
-            {
-                return;
-            }
-
-            _services.WorkExecution.StartWork(taskId, leavingContext: leavingContext);
+            _services.WorkExecution.StartWork(taskId);
             Load();
             WorkStarted?.Invoke(this, EventArgs.Empty);
             Message = "Work started.";
@@ -552,6 +505,63 @@ public sealed class TasksViewModel : ObservableObject
         {
             Message = ex.Message;
         }
+    }
+
+    private bool CanExecuteSwitchAndMarkWaiting() =>
+        CanSwitchTasks && Selected?.CanStartWork == true;
+
+    private void SwitchAndMarkWaiting()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        SwitchAndMarkWaitingForTask(Selected.Id);
+    }
+
+    private void SwitchAndMarkWaitingForTask(object? parameter)
+    {
+        if (!TryParseTaskId(parameter, out var taskId))
+        {
+            return;
+        }
+
+        Message = null;
+        try
+        {
+            _services.WorkExecution.StartWork(taskId, leavingStatus: TaskStatus.Waiting);
+            Load();
+            WorkStarted?.Invoke(this, EventArgs.Empty);
+            Message = "Switched — previous task marked waiting.";
+        }
+        catch (Exception ex)
+        {
+            Message = ex.Message;
+        }
+    }
+
+    private void SetStatusFilter(object? parameter)
+    {
+        if (parameter is not StatusFilterMode mode)
+        {
+            return;
+        }
+
+        var option = StatusFilterOptions.FirstOrDefault(o => o.Mode == mode)
+            ?? StatusFilterOptions.First();
+
+        SelectedStatusFilter = option;
+    }
+
+    private void ViewProjectContext()
+    {
+        if (Selected?.ProjectId is not { } projectId)
+        {
+            return;
+        }
+
+        ViewProjectContextRequested?.Invoke(this, projectId);
     }
 
     private bool CanExecuteResumeWork() => Selected?.CanResumeWork == true;
@@ -576,12 +586,7 @@ public sealed class TasksViewModel : ObservableObject
         Message = null;
         try
         {
-            if (!TryPromptLeavingContext(out var leavingContext))
-            {
-                return;
-            }
-
-            _services.WorkExecution.ResumeWork(taskId, leavingContext);
+            _services.WorkExecution.ResumeWork(taskId);
             Load();
             WorkStarted?.Invoke(this, EventArgs.Empty);
             Message = "Work resumed.";
@@ -590,35 +595,6 @@ public sealed class TasksViewModel : ObservableObject
         {
             Message = ex.Message;
         }
-    }
-
-    private bool TryPromptLeavingContext(out WorkingContext? leavingContext)
-    {
-        leavingContext = null;
-        var task = _services.WorkExecution.GetLeavingTask();
-        if (task is null)
-        {
-            return true;
-        }
-
-        var request = new ContextCaptureRequest
-        {
-            Task = task,
-            Reason = ContextCaptureReason.Switch
-        };
-        ContextCaptureRequested?.Invoke(this, request);
-
-        if (request.Result == ContextCaptureResult.Cancelled)
-        {
-            return false;
-        }
-
-        if (request.Result == ContextCaptureResult.Saved)
-        {
-            leavingContext = request.Context;
-        }
-
-        return true;
     }
 
     private static bool TryParseTaskId(object? parameter, out Guid taskId)
@@ -649,7 +625,7 @@ public sealed class TasksViewModel : ObservableObject
                 ? SelectedFilter.ProjectId
                 : null;
 
-            var created = _services.Tasks.Create(QuickAddTitle, projectId);
+            var created = _services.Tasks.CaptureToInbox(QuickAddTitle, projectId);
             QuickAddTitle = string.Empty;
             Load();
             Selected = Items.FirstOrDefault(i => i.Id == created.Id);
@@ -673,32 +649,6 @@ public sealed class TasksViewModel : ObservableObject
         }
     }
 
-    private void CaptureSnapshot()
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        Message = null;
-        if (!TrySaveSelected(out var taskId, out var saveError))
-        {
-            Message = saveError ?? "Could not save task before capturing snapshot.";
-            return;
-        }
-
-        try
-        {
-            _services.ContextSnapshots.Capture(taskId);
-            LoadSnapshots();
-            Message = "Snapshot captured.";
-        }
-        catch (Exception ex)
-        {
-            Message = ex.Message;
-        }
-    }
-
     private bool TrySaveSelected(out Guid taskId, out string? error)
     {
         taskId = Guid.Empty;
@@ -712,7 +662,6 @@ public sealed class TasksViewModel : ObservableObject
         try
         {
             var projectId = SelectedProjectOption?.ProjectId;
-            var milestoneId = projectId is null ? null : SelectedMilestoneOption?.MilestoneId;
             var newStatus = Selected.Status;
 
             var updated = new WorkTask
@@ -720,21 +669,14 @@ public sealed class TasksViewModel : ObservableObject
                 Id = Selected.Id,
                 Title = Selected.Title,
                 Status = Selected.Status,
+                Notes = Selected.Notes,
                 ProjectId = projectId,
-                MilestoneId = milestoneId,
                 CreatedAt = Selected.Task.CreatedAt,
                 UpdatedAt = Selected.Task.UpdatedAt,
                 LastWorkedAt = Selected.Task.LastWorkedAt
             };
 
             var result = _services.Tasks.Update(updated);
-            result = _services.Tasks.UpdateContext(
-                result.Id,
-                Selected.CurrentStatus,
-                Selected.LastProgress,
-                Selected.NextAction,
-                Selected.Blocker,
-                Selected.Notes);
 
             if (newStatus != _loadedStatus)
             {
@@ -751,35 +693,6 @@ public sealed class TasksViewModel : ObservableObject
             error = ex.Message;
             return false;
         }
-    }
-
-    private void LoadSnapshots()
-    {
-        Snapshots.Clear();
-        LatestSnapshotSummary = string.Empty;
-
-        if (Selected is null)
-        {
-            OnPropertyChanged(nameof(HasSnapshots));
-            return;
-        }
-
-        var snapshots = _services.ContextSnapshots.ListByTask(Selected.Id);
-        foreach (var snapshot in snapshots)
-        {
-            Snapshots.Add(new ContextSnapshotItemViewModel(snapshot));
-        }
-
-        var latest = snapshots.FirstOrDefault();
-        if (latest is not null)
-        {
-            var item = new ContextSnapshotItemViewModel(latest);
-            LatestSnapshotSummary = string.IsNullOrWhiteSpace(item.Summary)
-                ? item.CreatedAtDisplay
-                : $"{item.CreatedAtDisplay} — {item.Summary}";
-        }
-
-        OnPropertyChanged(nameof(HasSnapshots));
     }
 
     private void LoadFocusTime()
@@ -808,7 +721,7 @@ public sealed class TasksViewModel : ObservableObject
         Message = null;
         try
         {
-            var result = _services.Tasks.TransitionStatus(Selected.Id, TaskStatus.Active);
+            var result = _services.Tasks.TransitionStatus(Selected.Id, TaskStatus.Ready);
             Load();
             Selected = Items.FirstOrDefault(i => i.Id == result.Id);
             Message = "Task reopened.";

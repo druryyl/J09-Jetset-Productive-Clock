@@ -9,31 +9,22 @@ public sealed class TaskListItemViewModel : ObservableObject
     private string _title;
     private TaskStatus _status;
     private string _notes;
-    private string _currentStatus;
-    private string _lastProgress;
-    private string _nextAction;
-    private string _blocker;
     private Guid? _projectId;
     private string? _projectName;
-    private Guid? _milestoneId;
-    private string? _milestoneName;
+    private TaskOrigin _origin;
     private bool _hasPausedSession;
     private bool _isActiveSession;
+    private bool _showSwitchActions;
 
-    public TaskListItemViewModel(WorkTask task, string? projectName = null, string? milestoneName = null)
+    public TaskListItemViewModel(WorkTask task, string? projectName = null)
     {
         Task = task;
         _title = task.Title;
         _status = task.Status;
         _notes = task.Notes ?? string.Empty;
-        _currentStatus = task.CurrentStatus ?? string.Empty;
-        _lastProgress = task.LastProgress ?? string.Empty;
-        _nextAction = task.NextAction ?? string.Empty;
-        _blocker = task.Blocker ?? string.Empty;
         _projectId = task.ProjectId;
         _projectName = projectName;
-        _milestoneId = task.MilestoneId;
-        _milestoneName = milestoneName;
+        _origin = task.Origin;
     }
 
     public WorkTask Task { get; }
@@ -54,6 +45,7 @@ public sealed class TaskListItemViewModel : ObservableObject
             if (SetProperty(ref _status, value))
             {
                 OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(SearchSubtitle));
                 OnPropertyChanged(nameof(IsTerminal));
                 OnPropertyChanged(nameof(CanReopen));
             }
@@ -66,96 +58,6 @@ public sealed class TaskListItemViewModel : ObservableObject
         set => SetProperty(ref _notes, value);
     }
 
-    public string CurrentStatus
-    {
-        get => _currentStatus;
-        set
-        {
-            if (SetProperty(ref _currentStatus, value))
-            {
-                RaiseContextSummaryChanged();
-            }
-        }
-    }
-
-    public string LastProgress
-    {
-        get => _lastProgress;
-        set
-        {
-            if (SetProperty(ref _lastProgress, value))
-            {
-                RaiseContextSummaryChanged();
-            }
-        }
-    }
-
-    public string NextAction
-    {
-        get => _nextAction;
-        set
-        {
-            if (SetProperty(ref _nextAction, value))
-            {
-                RaiseContextSummaryChanged();
-            }
-        }
-    }
-
-    public string Blocker
-    {
-        get => _blocker;
-        set
-        {
-            if (SetProperty(ref _blocker, value))
-            {
-                OnPropertyChanged(nameof(HasBlocker));
-                OnPropertyChanged(nameof(BlockerDisplay));
-            }
-        }
-    }
-
-    public bool HasContextSummary => !string.IsNullOrWhiteSpace(ContextSummary);
-
-    public bool HasCurrentStatusDisplay => !string.IsNullOrWhiteSpace(_currentStatus);
-
-    public bool HasLastProgressDisplay => !string.IsNullOrWhiteSpace(_lastProgress);
-
-    public bool HasNextActionDisplay => !string.IsNullOrWhiteSpace(_nextAction);
-
-    public bool HasBlocker => !string.IsNullOrWhiteSpace(Blocker);
-
-    public string ContextSummary
-    {
-        get
-        {
-            if (!string.IsNullOrWhiteSpace(_nextAction))
-            {
-                return _nextAction.Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(_currentStatus))
-            {
-                return _currentStatus.Trim();
-            }
-
-            if (!string.IsNullOrWhiteSpace(_lastProgress))
-            {
-                return _lastProgress.Trim();
-            }
-
-            return string.Empty;
-        }
-    }
-
-    public string BlockerDisplay => HasBlocker ? Blocker.Trim() : string.Empty;
-
-    private void RaiseContextSummaryChanged()
-    {
-        OnPropertyChanged(nameof(ContextSummary));
-        OnPropertyChanged(nameof(HasContextSummary));
-    }
-
     public Guid? ProjectId
     {
         get => _projectId;
@@ -165,6 +67,7 @@ public sealed class TaskListItemViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(HasProject));
                 OnPropertyChanged(nameof(ProjectDisplay));
+                OnPropertyChanged(nameof(SearchSubtitle));
             }
         }
     }
@@ -178,47 +81,39 @@ public sealed class TaskListItemViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(HasProject));
                 OnPropertyChanged(nameof(ProjectDisplay));
-            }
-        }
-    }
-
-    public Guid? MilestoneId
-    {
-        get => _milestoneId;
-        set
-        {
-            if (SetProperty(ref _milestoneId, value))
-            {
-                OnPropertyChanged(nameof(HasMilestone));
-                OnPropertyChanged(nameof(MilestoneDisplay));
-            }
-        }
-    }
-
-    public string? MilestoneName
-    {
-        get => _milestoneName;
-        set
-        {
-            if (SetProperty(ref _milestoneName, value))
-            {
-                OnPropertyChanged(nameof(HasMilestone));
-                OnPropertyChanged(nameof(MilestoneDisplay));
+                OnPropertyChanged(nameof(SearchSubtitle));
             }
         }
     }
 
     public bool HasProject => ProjectId is not null;
 
-    public bool HasMilestone => MilestoneId is not null;
-
     public string ProjectDisplay =>
         string.IsNullOrWhiteSpace(ProjectName) ? string.Empty : ProjectName;
 
-    public string MilestoneDisplay =>
-        string.IsNullOrWhiteSpace(MilestoneName) ? string.Empty : MilestoneName;
-
     public string StatusText => Status.ToString();
+
+    public string SearchSubtitle =>
+        HasProject && !string.IsNullOrWhiteSpace(ProjectDisplay)
+            ? $"{StatusText} · {ProjectDisplay}"
+            : StatusText;
+
+    public TaskOrigin Origin
+    {
+        get => _origin;
+        set
+        {
+            if (SetProperty(ref _origin, value))
+            {
+                OnPropertyChanged(nameof(OriginText));
+                OnPropertyChanged(nameof(IsPlanned));
+            }
+        }
+    }
+
+    public string OriginText => Origin.ToString();
+
+    public bool IsPlanned => Origin == TaskOrigin.Planned;
 
     public bool IsTerminal => TaskStatusRules.IsTerminal(Status);
 
@@ -251,9 +146,16 @@ public sealed class TaskListItemViewModel : ObservableObject
         }
     }
 
-    public bool CanStartWork => !IsTerminal && !IsActiveSession && !HasPausedSession;
+    public bool CanStartWork =>
+        !IsTerminal && !IsActiveSession && !HasPausedSession && TaskStatusRules.CanStart(Status);
 
     public bool CanResumeWork => !IsTerminal && HasPausedSession && !IsActiveSession;
 
     public bool IsWorkActive => IsActiveSession;
+
+    public bool ShowSwitchActions
+    {
+        get => _showSwitchActions;
+        set => SetProperty(ref _showSwitchActions, value);
+    }
 }

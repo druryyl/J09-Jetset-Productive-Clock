@@ -4,6 +4,7 @@ using Jetset.App.Helpers;
 using Jetset.App.Models;
 using Jetset.App.Services;
 using Microsoft.Win32;
+using TaskStatus = Jetset.App.Models.TaskStatus;
 
 namespace Jetset.App.ViewModels;
 
@@ -30,12 +31,10 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
     private bool _isOvertime;
     private bool _showStartPanel;
     private string? _validationMessage;
-    private int _inProgressCount;
-    private bool _hasResumeQueueItems;
-    private string? _activeTaskCurrentStatus;
-    private string? _activeTaskLastProgress;
-    private string? _activeTaskNextAction;
-    private string? _activeTaskBlocker;
+    private string _quickCaptureTitle = string.Empty;
+    private Guid? _contextProjectId;
+    private string _projectName = string.Empty;
+    private string _projectContextText = string.Empty;
 
     public FocusViewModel(AppServices services)
     {
@@ -43,7 +42,8 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         _idleAutoPause = services.IdleAutoPause;
         Settings = services.Settings.Settings;
         StartSession = new StartSessionViewModel(services.Tasks);
-        ResumeQueueItems = new ObservableCollection<ResumeQueueItemViewModel>();
+        ReadyTasks = new ObservableCollection<FocusTaskPickerItemViewModel>();
+        WaitingTasks = new ObservableCollection<FocusTaskPickerItemViewModel>();
 
         StartWorkCommand = new RelayCommand(() =>
         {
@@ -67,8 +67,13 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         FinishCommand = new RelayCommand(Finish, () => UiState is UiSessionState.Running or UiSessionState.Paused);
         OpenHistoryCommand = new RelayCommand(() => OpenHistoryRequested?.Invoke(this, EventArgs.Empty));
         OpenSettingsCommand = new RelayCommand(() => OpenSettingsRequested?.Invoke(this, EventArgs.Empty));
+        EditProjectContextCommand = new RelayCommand(
+            () => EditProjectContextRequested?.Invoke(this, _contextProjectId!.Value),
+            () => _contextProjectId is not null);
         ToggleCompactCommand = new RelayCommand(ToggleCompact);
-        ResumeFromQueueCommand = new RelayCommand(ResumeFromQueue);
+        QuickCaptureCommand = new RelayCommand(QuickCapture, CanQuickCapture);
+        StartTaskCommand = new RelayCommand(StartTaskFromPicker);
+        SwitchAndMarkWaitingCommand = new RelayCommand(SwitchAndMarkWaitingFromPicker);
 
         IsCompact = Settings.CompactMode;
         AlwaysOnTop = Settings.AlwaysOnTop;
@@ -111,6 +116,7 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         SystemEvents.SessionSwitch += OnSessionSwitch;
 
         RefreshFromSession();
+        RefreshTaskLists();
         RefreshDisplay();
     }
 
@@ -118,7 +124,9 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
 
     public StartSessionViewModel StartSession { get; }
 
-    public ObservableCollection<ResumeQueueItemViewModel> ResumeQueueItems { get; }
+    public ObservableCollection<FocusTaskPickerItemViewModel> ReadyTasks { get; }
+
+    public ObservableCollection<FocusTaskPickerItemViewModel> WaitingTasks { get; }
 
     public RelayCommand StartWorkCommand { get; }
     public RelayCommand CancelStartCommand { get; }
@@ -128,14 +136,18 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
     public RelayCommand FinishCommand { get; }
     public RelayCommand OpenHistoryCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
+    public RelayCommand EditProjectContextCommand { get; }
     public RelayCommand ToggleCompactCommand { get; }
-    public RelayCommand ResumeFromQueueCommand { get; }
+    public RelayCommand QuickCaptureCommand { get; }
+    public RelayCommand StartTaskCommand { get; }
+    public RelayCommand SwitchAndMarkWaitingCommand { get; }
 
     public event EventHandler? OpenHistoryRequested;
     public event EventHandler? OpenSettingsRequested;
-    public event EventHandler<ContextCaptureRequest>? ContextCaptureRequested;
+    public event EventHandler<Guid>? EditProjectContextRequested;
     public event EventHandler<WorkSession>? RecoveryNeeded;
     public event EventHandler? CompactModeChanged;
+    public event EventHandler? QuickCaptureFocusRequested;
 
     public string CurrentTime
     {
@@ -263,91 +275,47 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _validationMessage, value);
     }
 
-    public int InProgressCount
+    public string QuickCaptureTitle
     {
-        get => _inProgressCount;
-        private set
+        get => _quickCaptureTitle;
+        set
         {
-            if (SetProperty(ref _inProgressCount, value))
+            if (SetProperty(ref _quickCaptureTitle, value))
             {
-                OnPropertyChanged(nameof(StartWorkButtonText));
+                QuickCaptureCommand.RaiseCanExecuteChanged();
             }
         }
     }
 
-    public bool HasResumeQueueItems
+    public bool HasReadyTasks => ReadyTasks.Count > 0;
+
+    public bool HasWaitingTasks => WaitingTasks.Count > 0;
+
+    public bool CanSwitchTasks => !IsIdle;
+
+    public string StartWorkButtonText => CanSwitchTasks ? "Timer options" : "Start with timer";
+
+    public bool HasProjectContext => _contextProjectId is not null;
+
+    public bool HasProjectContextText => !string.IsNullOrWhiteSpace(ProjectContextText);
+
+    public string ProjectName
     {
-        get => _hasResumeQueueItems;
-        private set => SetProperty(ref _hasResumeQueueItems, value);
+        get => _projectName;
+        private set => SetProperty(ref _projectName, value);
     }
 
-    public bool HasActiveTaskContext =>
-        !string.IsNullOrWhiteSpace(ActiveTaskCurrentStatus) ||
-        !string.IsNullOrWhiteSpace(ActiveTaskLastProgress) ||
-        !string.IsNullOrWhiteSpace(ActiveTaskNextAction) ||
-        !string.IsNullOrWhiteSpace(ActiveTaskBlocker);
-
-    public string? ActiveTaskCurrentStatus
+    public string ProjectContextText
     {
-        get => _activeTaskCurrentStatus;
+        get => _projectContextText;
         private set
         {
-            if (SetProperty(ref _activeTaskCurrentStatus, value))
+            if (SetProperty(ref _projectContextText, value))
             {
-                OnPropertyChanged(nameof(HasActiveTaskContext));
-                OnPropertyChanged(nameof(HasActiveTaskCurrentStatus));
+                OnPropertyChanged(nameof(HasProjectContextText));
             }
         }
     }
-
-    public string? ActiveTaskLastProgress
-    {
-        get => _activeTaskLastProgress;
-        private set
-        {
-            if (SetProperty(ref _activeTaskLastProgress, value))
-            {
-                OnPropertyChanged(nameof(HasActiveTaskContext));
-                OnPropertyChanged(nameof(HasActiveTaskLastProgress));
-            }
-        }
-    }
-
-    public string? ActiveTaskNextAction
-    {
-        get => _activeTaskNextAction;
-        private set
-        {
-            if (SetProperty(ref _activeTaskNextAction, value))
-            {
-                OnPropertyChanged(nameof(HasActiveTaskContext));
-                OnPropertyChanged(nameof(HasActiveTaskNextAction));
-            }
-        }
-    }
-
-    public string? ActiveTaskBlocker
-    {
-        get => _activeTaskBlocker;
-        private set
-        {
-            if (SetProperty(ref _activeTaskBlocker, value))
-            {
-                OnPropertyChanged(nameof(HasActiveTaskContext));
-                OnPropertyChanged(nameof(HasActiveTaskBlocker));
-            }
-        }
-    }
-
-    public bool HasActiveTaskBlocker => !string.IsNullOrWhiteSpace(ActiveTaskBlocker);
-
-    public bool HasActiveTaskCurrentStatus => !string.IsNullOrWhiteSpace(ActiveTaskCurrentStatus);
-
-    public bool HasActiveTaskLastProgress => !string.IsNullOrWhiteSpace(ActiveTaskLastProgress);
-
-    public bool HasActiveTaskNextAction => !string.IsNullOrWhiteSpace(ActiveTaskNextAction);
-
-    public string StartWorkButtonText => InProgressCount > 0 ? "Start another" : "Start Work";
 
     public void ExitCompactMode()
     {
@@ -358,6 +326,31 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
 
         IsCompact = false;
         _services.Settings.Update(s => s.CompactMode = false);
+    }
+
+    public void RefreshTaskLists()
+    {
+        var projectNames = _services.Projects.ListProjects().ToDictionary(p => p.Id, p => p.Name);
+
+        ReadyTasks.Clear();
+        foreach (var task in OrderPickerTasks(_services.Tasks.ListByStatuses([TaskStatus.Ready])))
+        {
+            ReadyTasks.Add(CreatePickerItem(task, projectNames));
+        }
+
+        WaitingTasks.Clear();
+        foreach (var task in OrderPickerTasks(_services.Tasks.ListByStatuses([TaskStatus.Waiting])))
+        {
+            WaitingTasks.Add(CreatePickerItem(task, projectNames));
+        }
+
+        OnPropertyChanged(nameof(HasReadyTasks));
+        OnPropertyChanged(nameof(HasWaitingTasks));
+    }
+
+    public void RequestQuickCaptureFocus()
+    {
+        QuickCaptureFocusRequested?.Invoke(this, EventArgs.Empty);
     }
 
     public void CheckRecovery()
@@ -389,9 +382,9 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         RefreshFromSession();
     }
 
-    private void CompleteFinish(string? note, WorkingContext? context = null)
+    private void CompleteFinish(string? note = null)
     {
-        _services.WorkExecution.FinishWork(note, context);
+        _services.WorkExecution.FinishWork(note);
         _idleAutoPause.NotifySessionEnded();
         RefreshFromSession();
     }
@@ -412,11 +405,6 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
 
         try
         {
-            if (!TryPromptContextCapture(ContextCaptureReason.Switch, out var leavingContext, out _))
-            {
-                return;
-            }
-
             Guid taskId;
             if (!string.IsNullOrWhiteSpace(newTaskTitle))
             {
@@ -428,7 +416,7 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
             }
 
             _idleAutoPause.NotifyManualResume();
-            _services.WorkExecution.StartWork(taskId, mode, duration, leavingContext);
+            _services.WorkExecution.StartWork(taskId, mode, duration);
             ShowStartPanel = false;
             StartSession.Reset();
             RefreshFromSession();
@@ -443,13 +431,8 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
     {
         try
         {
-            if (!TryPromptContextCapture(ContextCaptureReason.Pause, out var context, out _))
-            {
-                return;
-            }
-
             _idleAutoPause.NotifyManualPause();
-            _services.WorkExecution.PauseWork(context);
+            _services.WorkExecution.PauseWork();
             RefreshFromSession();
         }
         catch (Exception ex)
@@ -472,92 +455,16 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void ResumeFromQueue(object? parameter)
-    {
-        Guid taskId;
-        if (parameter is Guid id)
-        {
-            taskId = id;
-        }
-        else if (parameter is string text && Guid.TryParse(text, out var parsed))
-        {
-            taskId = parsed;
-        }
-        else
-        {
-            return;
-        }
-
-        try
-        {
-            if (!TryPromptContextCapture(ContextCaptureReason.Switch, out var leavingContext, out _))
-            {
-                return;
-            }
-
-            _idleAutoPause.NotifyManualResume();
-            _services.WorkExecution.ResumeWork(taskId, leavingContext);
-            RefreshFromSession();
-        }
-        catch (Exception ex)
-        {
-            ValidationMessage = ex.Message;
-        }
-    }
-
     private void Finish()
     {
         try
         {
-            if (!TryPromptContextCapture(ContextCaptureReason.Finish, out var context, out var note))
-            {
-                return;
-            }
-
-            CompleteFinish(note, context);
+            CompleteFinish();
         }
         catch (Exception ex)
         {
             ValidationMessage = ex.Message;
         }
-    }
-
-    private bool TryPromptContextCapture(
-        ContextCaptureReason reason,
-        out WorkingContext? context,
-        out string? sessionNote)
-    {
-        context = null;
-        sessionNote = null;
-
-        var task = reason == ContextCaptureReason.Finish
-            ? _services.WorkExecution.GetActiveTask()
-            : _services.WorkExecution.GetLeavingTask();
-
-        if (task is null)
-        {
-            return true;
-        }
-
-        var request = new ContextCaptureRequest
-        {
-            Task = task,
-            Reason = reason
-        };
-        ContextCaptureRequested?.Invoke(this, request);
-
-        if (request.Result == ContextCaptureResult.Cancelled)
-        {
-            return false;
-        }
-
-        sessionNote = request.SessionNote;
-        if (request.Result == ContextCaptureResult.Saved)
-        {
-            context = request.Context;
-        }
-
-        return true;
     }
 
     private void ToggleCompact()
@@ -569,8 +476,6 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
     private void RefreshFromSession()
     {
         var session = _services.Sessions.ActiveSession;
-        var inProgress = _services.Sessions.GetInProgressSessions();
-        InProgressCount = inProgress.Count;
 
         if (session is null)
         {
@@ -581,7 +486,7 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
             ModeText = string.Empty;
             StatusText = string.Empty;
             IsOvertime = false;
-            ClearActiveTaskContext();
+            RefreshProjectContext(null);
         }
         else
         {
@@ -591,93 +496,14 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
             StatusText = session.State == SessionState.Paused
                 ? (_idleAutoPause.PausedByIdle ? "Paused (idle)" : "Paused")
                 : "Running";
-            RefreshActiveTaskContext();
+            RefreshProjectContext(session);
         }
 
-        SyncResumeQueue();
         TodayTotalText = FormatTodayTotalText();
         StreakText = FormatStreakText();
+        RefreshTaskLists();
         RaiseCommands();
         RefreshDisplay();
-    }
-
-    private void RefreshActiveTaskContext()
-    {
-        var task = _services.WorkExecution.GetActiveTask();
-        if (task is null)
-        {
-            ClearActiveTaskContext();
-            return;
-        }
-
-        ActiveTaskCurrentStatus = task.CurrentStatus;
-        ActiveTaskLastProgress = task.LastProgress;
-        ActiveTaskNextAction = task.NextAction;
-        ActiveTaskBlocker = task.Blocker;
-    }
-
-    private void ClearActiveTaskContext()
-    {
-        ActiveTaskCurrentStatus = null;
-        ActiveTaskLastProgress = null;
-        ActiveTaskNextAction = null;
-        ActiveTaskBlocker = null;
-    }
-
-    private void SyncResumeQueue()
-    {
-        var queue = _services.ResumeQueue.GetOrderedTasks();
-        HasResumeQueueItems = queue.Count > 0;
-
-        for (var i = ResumeQueueItems.Count - 1; i >= 0; i--)
-        {
-            if (queue.All(e => e.Task.Id != ResumeQueueItems[i].TaskId))
-            {
-                ResumeQueueItems.RemoveAt(i);
-            }
-        }
-
-        foreach (var entry in queue)
-        {
-            var existing = ResumeQueueItems.FirstOrDefault(i => i.TaskId == entry.Task.Id);
-            if (existing is null)
-            {
-                ResumeQueueItems.Add(new ResumeQueueItemViewModel(
-                    entry.Task.Id,
-                    entry.PausedSession?.Id,
-                    entry.Task.Title,
-                    entry.Task.CurrentStatus,
-                    entry.Task.LastProgress,
-                    entry.Task.NextAction,
-                    entry.Task.Blocker,
-                    ResumeFromQueueCommand));
-            }
-            else
-            {
-                existing.CurrentStatus = entry.Task.CurrentStatus;
-                existing.LastProgress = entry.Task.LastProgress;
-                existing.NextAction = entry.Task.NextAction;
-                existing.Blocker = entry.Task.Blocker;
-            }
-        }
-
-        for (var i = 0; i < queue.Count; i++)
-        {
-            var currentIndex = -1;
-            for (var j = 0; j < ResumeQueueItems.Count; j++)
-            {
-                if (ResumeQueueItems[j].TaskId == queue[i].Task.Id)
-                {
-                    currentIndex = j;
-                    break;
-                }
-            }
-
-            if (currentIndex >= 0 && currentIndex != i && i < ResumeQueueItems.Count)
-            {
-                ResumeQueueItems.Move(currentIndex, i);
-            }
-        }
     }
 
     private void RefreshDisplay()
@@ -692,7 +518,6 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
             CompactLine = string.Empty;
             TodayTotalText = FormatTodayTotalText();
             StreakText = FormatStreakText();
-            RefreshResumeQueueDurations(now);
             return;
         }
 
@@ -720,9 +545,7 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         }
 
         var glyph = session.State == SessionState.Paused ? "❚❚" : "▶";
-        var countSuffix = InProgressCount > 1 ? $"  · {InProgressCount}" : string.Empty;
-        CompactLine = $"{glyph} {TimerDisplay}  {TaskName}{countSuffix}";
-        RefreshResumeQueueDurations(now);
+        CompactLine = $"{glyph} {TimerDisplay}  {TaskName}";
     }
 
     private string FormatTodayTotalText()
@@ -748,26 +571,6 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         var current = streak.CurrentStreak == 1 ? "1 day" : $"{streak.CurrentStreak} days";
         var best = streak.LongestStreak == 1 ? "1 day" : $"{streak.LongestStreak} days";
         return $"Streak: {current} · Best: {best}";
-    }
-
-    private void RefreshResumeQueueDurations(DateTimeOffset now)
-    {
-        var queue = _services.ResumeQueue.GetOrderedTasks();
-        foreach (var item in ResumeQueueItems)
-        {
-            var entry = queue.FirstOrDefault(e => e.Task.Id == item.TaskId);
-            if (entry?.PausedSession is { } session)
-            {
-                var duration = _services.Sessions.GetActiveDuration(session.Id, now);
-                item.DurationText = DurationFormatter.FormatFriendly(duration);
-                item.StatusText = "Waiting";
-            }
-            else
-            {
-                item.DurationText = string.Empty;
-                item.StatusText = "Ready";
-            }
-        }
     }
 
     private void MaybeNotifyCountdownComplete(WorkSession session)
@@ -834,6 +637,127 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void RefreshProjectContext(WorkSession? session)
+    {
+        if (session is null)
+        {
+            _contextProjectId = null;
+            ProjectName = string.Empty;
+            ProjectContextText = string.Empty;
+            OnPropertyChanged(nameof(HasProjectContext));
+            EditProjectContextCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        var task = _services.Tasks.Get(session.TaskId);
+        if (task?.ProjectId is not { } projectId)
+        {
+            _contextProjectId = null;
+            ProjectName = string.Empty;
+            ProjectContextText = string.Empty;
+            OnPropertyChanged(nameof(HasProjectContext));
+            EditProjectContextCommand.RaiseCanExecuteChanged();
+            return;
+        }
+
+        var project = _services.Projects.Get(projectId);
+        _contextProjectId = projectId;
+        ProjectName = project?.Name ?? string.Empty;
+        ProjectContextText = _services.Projects.GetContextText(projectId) ?? string.Empty;
+        OnPropertyChanged(nameof(HasProjectContext));
+        EditProjectContextCommand.RaiseCanExecuteChanged();
+    }
+
+    private bool CanQuickCapture() => !string.IsNullOrWhiteSpace(QuickCaptureTitle);
+
+    private void QuickCapture()
+    {
+        ValidationMessage = null;
+        try
+        {
+            _services.Tasks.CaptureToInbox(QuickCaptureTitle);
+            QuickCaptureTitle = string.Empty;
+            RefreshTaskLists();
+            ValidationMessage = "Captured to Inbox.";
+        }
+        catch (Exception ex)
+        {
+            ValidationMessage = ex.Message;
+        }
+    }
+
+    private void StartTaskFromPicker(object? parameter)
+    {
+        if (!TryParsePickerItem(parameter, out var taskId))
+        {
+            return;
+        }
+
+        StartTaskWithLeavingStatus(taskId, TaskStatus.Ready);
+    }
+
+    private void SwitchAndMarkWaitingFromPicker(object? parameter)
+    {
+        if (!TryParsePickerItem(parameter, out var taskId))
+        {
+            return;
+        }
+
+        StartTaskWithLeavingStatus(taskId, TaskStatus.Waiting);
+    }
+
+    private void StartTaskWithLeavingStatus(Guid taskId, TaskStatus leavingStatus)
+    {
+        ValidationMessage = null;
+        try
+        {
+            _idleAutoPause.NotifyManualResume();
+            _services.WorkExecution.StartWork(taskId, leavingStatus: leavingStatus);
+            ShowStartPanel = false;
+            StartSession.Reset();
+            RefreshFromSession();
+        }
+        catch (Exception ex)
+        {
+            ValidationMessage = ex.Message;
+        }
+    }
+
+    private static bool TryParsePickerItem(object? parameter, out Guid taskId)
+    {
+        switch (parameter)
+        {
+            case Guid id:
+                taskId = id;
+                return true;
+            case FocusTaskPickerItemViewModel item:
+                taskId = item.Id;
+                return true;
+            case string text when Guid.TryParse(text, out var parsed):
+                taskId = parsed;
+                return true;
+            default:
+                taskId = Guid.Empty;
+                return false;
+        }
+    }
+
+    private static IEnumerable<WorkTask> OrderPickerTasks(IReadOnlyList<WorkTask> tasks) =>
+        tasks.OrderByDescending(t => t.LastWorkedAt ?? t.UpdatedAt);
+
+    private static FocusTaskPickerItemViewModel CreatePickerItem(
+        WorkTask task,
+        Dictionary<Guid, string> projectNames)
+    {
+        string? projectName = null;
+        if (task.ProjectId is { } projectId)
+        {
+            projectNames.TryGetValue(projectId, out projectName);
+        }
+
+        return new FocusTaskPickerItemViewModel(task.Id, task.Title, task.Status.ToString(), projectName);
+    }
+
     private void RaiseCommands()
     {
         StartWorkCommand.RaiseCanExecuteChanged();
@@ -841,6 +765,10 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
         PauseCommand.RaiseCanExecuteChanged();
         ResumeCommand.RaiseCanExecuteChanged();
         FinishCommand.RaiseCanExecuteChanged();
+        EditProjectContextCommand.RaiseCanExecuteChanged();
+        QuickCaptureCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSwitchTasks));
+        OnPropertyChanged(nameof(StartWorkButtonText));
     }
 
     public void Dispose()

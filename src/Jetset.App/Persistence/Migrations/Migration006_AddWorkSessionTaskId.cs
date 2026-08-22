@@ -70,13 +70,14 @@ public sealed class Migration006_AddWorkSessionTaskId : IMigration
                 var completed = reader.GetInt64(4);
                 var cancelled = reader.GetInt64(5);
 
+                // Legacy status integers (pre-migration 008): Active=0, Done=2, Cancelled=3
                 var status = inProgress > 0
-                    ? Models.TaskStatus.Active
+                    ? 0
                     : completed > 0
-                        ? Models.TaskStatus.Done
+                        ? 2
                         : cancelled > 0
-                            ? Models.TaskStatus.Cancelled
-                            : Models.TaskStatus.Active;
+                            ? 3
+                            : 0;
 
                 var existingTaskId = GetExistingTaskId(connection, transaction, taskName);
                 var taskId = existingTaskId ?? Guid.NewGuid().ToString();

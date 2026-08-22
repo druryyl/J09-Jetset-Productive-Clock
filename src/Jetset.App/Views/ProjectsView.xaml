@@ -11,7 +11,7 @@
             <Setter Property="Background" Value="{DynamicResource AccentMutedBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Style.Triggers>
-              <DataTrigger Binding="{Binding Status}" Value="Blocked">
+              <DataTrigger Binding="{Binding Status}" Value="Waiting">
                 <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
                 <Setter Property="BorderBrush" Value="{DynamicResource PausedBrush}" />
               </DataTrigger>
@@ -31,7 +31,7 @@
             <Style TargetType="TextBlock">
               <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
               <Style.Triggers>
-                <DataTrigger Binding="{Binding Status}" Value="Blocked">
+                <DataTrigger Binding="{Binding Status}" Value="Waiting">
                   <Setter Property="Foreground" Value="{DynamicResource PausedBrush}" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding Status}" Value="Done">
@@ -45,47 +45,6 @@
           </TextBlock.Style>
         </TextBlock>
       </Border>
-    </DataTemplate>
-
-    <Style x:Key="MomentumBarTrackStyle" TargetType="Border">
-      <Setter Property="Height" Value="10" />
-      <Setter Property="CornerRadius" Value="2" />
-      <Setter Property="Background" Value="{DynamicResource HeatmapLevel0Brush}" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-
-    <DataTemplate x:Key="MomentumWeekTemplate">
-      <Grid Margin="0,0,0,10">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="52" />
-          <ColumnDefinition Width="172" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding WeekLabel}" FontSize="11"
-                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
-        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource MomentumBarTrackStyle}">
-          <Border Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" CornerRadius="2"
-                  Height="10" Width="{Binding FocusBarWidth}" />
-        </Border>
-        <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding FocusTimeText}" FontSize="11"
-                   Margin="8,0,0,0" VerticalAlignment="Center" />
-
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Tasks" FontSize="10"
-                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"
-                   VerticalAlignment="Center" />
-        <Border Grid.Row="1" Grid.Column="1" Margin="0,4,0,0" Style="{StaticResource MomentumBarTrackStyle}">
-          <Border Background="{DynamicResource PausedBrush}" HorizontalAlignment="Left" CornerRadius="2"
-                  Height="10" Width="{Binding CompletionBarWidth}" />
-        </Border>
-        <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding CompletionText}" FontSize="10"
-                   Margin="8,4,0,0" Foreground="{DynamicResource TextSecondaryBrush}"
-                   VerticalAlignment="Center" />
-      </Grid>
     </DataTemplate>
   </UserControl.Resources>
   <Grid Margin="16">
@@ -147,73 +106,23 @@
               <TextBlock Text="Project detail" FontWeight="SemiBold" Margin="0,0,0,8" />
               <TextBlock Text="Name" Foreground="{DynamicResource TextSecondaryBrush}" />
               <TextBox Text="{Binding Selected.Name, UpdateSourceTrigger=PropertyChanged}"
-                       Margin="0,4,0,8" Padding="4" />
+                       Margin="0,4,0,12" Padding="4" />
 
-              <CheckBox Content="Set deadline" IsChecked="{Binding Selected.HasDeadline}"
-                        Margin="0,0,0,4" />
-              <DatePicker SelectedDate="{Binding Selected.DeadlineDate}"
-                          Margin="0,0,0,8"
-                          IsEnabled="{Binding Selected.HasDeadline}"
-                          Visibility="{Binding Selected.HasDeadline, Converter={StaticResource BoolToVis}}" />
-
-              <TextBlock Text="Momentum" FontWeight="SemiBold" Margin="0,8,0,4" />
-              <TextBlock Text="{Binding MomentumRangeText}" FontSize="11"
-                         Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
-              <TextBlock Text="{Binding MomentumSummaryText}" FontSize="11"
-                         Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,8" />
-              <ItemsControl ItemsSource="{Binding MomentumWeeks}"
-                            ItemTemplate="{StaticResource MomentumWeekTemplate}"
-                            Margin="0,0,0,12"
-                            Visibility="{Binding HasMomentumWeeks, Converter={StaticResource BoolToVis}}" />
-
-              <TextBlock Text="Milestones" FontWeight="SemiBold" Margin="0,4,0,4" />
-              <TextBlock Text="No milestones yet."
-                         FontSize="12"
+              <TextBlock Text="Project context" FontWeight="SemiBold" Margin="0,0,0,4" />
+              <TextBlock Text="Free-form working notes for this project. Edits are independent of tasks and sessions."
+                         FontSize="11"
                          Foreground="{DynamicResource TextSecondaryBrush}"
-                         Margin="0,0,0,8"
-                         Visibility="{Binding HasMilestones, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
-              <ListBox ItemsSource="{Binding Milestones}"
-                       SelectedItem="{Binding SelectedMilestone}"
-                       Margin="0,0,0,8"
-                       MaxHeight="140"
-                       BorderBrush="{DynamicResource BorderBrush}"
-                       Background="{DynamicResource WindowBackgroundBrush}"
-                       Visibility="{Binding HasMilestones, Converter={StaticResource BoolToVis}}">
-                <ListBox.ItemTemplate>
-                  <DataTemplate>
-                    <StackPanel Margin="2">
-                      <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
-                      <TextBlock Text="{Binding ProgressText}" FontSize="11"
-                                 Foreground="{DynamicResource TextSecondaryBrush}" />
-                    </StackPanel>
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
+                         TextWrapping="Wrap"
+                         Margin="0,0,0,4" />
+              <TextBox Text="{Binding Selected.ContextText, UpdateSourceTrigger=PropertyChanged}"
+                       AcceptsReturn="True"
+                       TextWrapping="Wrap"
+                       MinHeight="140"
+                       VerticalScrollBarVisibility="Auto"
+                       Padding="4"
+                       Margin="0,0,0,16" />
 
-              <StackPanel Visibility="{Binding HasMilestoneSelection, Converter={StaticResource BoolToVis}}">
-                <TextBlock Text="Milestone name" Foreground="{DynamicResource TextSecondaryBrush}" />
-                <TextBox Text="{Binding SelectedMilestone.Name, UpdateSourceTrigger=PropertyChanged}"
-                         Margin="0,4,0,8" Padding="4" />
-                <DockPanel Margin="0,0,0,8">
-                  <Button DockPanel.Dock="Right" Content="Down" Command="{Binding MoveMilestoneDownCommand}"
-                          Style="{DynamicResource SecondaryButton}" Margin="4,0,0,0" />
-                  <Button DockPanel.Dock="Right" Content="Up" Command="{Binding MoveMilestoneUpCommand}"
-                          Style="{DynamicResource SecondaryButton}" Margin="4,0,0,0" />
-                  <Button Content="Save milestone" Command="{Binding SaveMilestoneCommand}"
-                          Style="{DynamicResource SecondaryButton}" />
-                </DockPanel>
-                <Button Content="Delete milestone" Command="{Binding DeleteMilestoneCommand}"
-                        Margin="0,0,0,8" Style="{DynamicResource SecondaryButton}" />
-              </StackPanel>
-
-              <DockPanel Margin="0,0,0,12">
-                <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddMilestoneCommand}"
-                        Style="{DynamicResource SecondaryButton}" Margin="8,0,0,0" />
-                <TextBox Text="{Binding QuickAddMilestoneName, UpdateSourceTrigger=PropertyChanged}"
-                         Padding="4" VerticalAlignment="Center" />
-              </DockPanel>
-
-              <TextBlock Text="Tasks" FontWeight="SemiBold" Margin="0,4,0,4" />
+              <TextBlock Text="Tasks" FontWeight="SemiBold" Margin="0,0,0,4" />
               <TextBlock Text="No tasks in this project."
                          FontSize="12"
                          Foreground="{DynamicResource TextSecondaryBrush}"
@@ -227,25 +136,6 @@
                       <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold" />
                       <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource TaskStatusBadgeTemplate}"
                                         Margin="0,2,0,0" />
-                      <TextBlock Text="{Binding MilestoneDisplay}" FontSize="11"
-                                 Foreground="{DynamicResource TextSecondaryBrush}"
-                                 Visibility="{Binding HasMilestone, Converter={StaticResource BoolToVis}}" />
-                      <TextBlock Text="{Binding CurrentStatus, StringFormat=Status: {0}}"
-                                 FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
-                                 Foreground="{DynamicResource TextSecondaryBrush}"
-                                 Visibility="{Binding HasCurrentStatusDisplay, Converter={StaticResource BoolToVis}}" />
-                      <TextBlock Text="{Binding LastProgress, StringFormat=Progress: {0}}"
-                                 FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
-                                 Foreground="{DynamicResource TextSecondaryBrush}"
-                                 Visibility="{Binding HasLastProgressDisplay, Converter={StaticResource BoolToVis}}" />
-                      <TextBlock Text="{Binding NextAction, StringFormat=Next: {0}}"
-                                 FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
-                                 Foreground="{DynamicResource TextSecondaryBrush}"
-                                 Visibility="{Binding HasNextActionDisplay, Converter={StaticResource BoolToVis}}" />
-                      <TextBlock Text="{Binding BlockerDisplay, StringFormat=Blocker: {0}}"
-                                 FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"
-                                 Foreground="{DynamicResource PausedBrush}"
-                                 Visibility="{Binding HasBlocker, Converter={StaticResource BoolToVis}}" />
                       <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                         <Button Content="Start work"
                                 Command="{Binding DataContext.StartWorkForTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
@@ -259,6 +149,12 @@
                                 Style="{DynamicResource PrimaryButton}"
                                 Margin="0,0,6,0"
                                 Visibility="{Binding CanResumeWork, Converter={StaticResource BoolToVis}}" />
+                        <Button Content="Switch &amp; wait"
+                                Command="{Binding DataContext.SwitchAndMarkWaitingForTaskCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}"
+                                Style="{DynamicResource LinkButton}"
+                                Margin="0,0,6,0"
+                                Visibility="{Binding ShowSwitchActions, Converter={StaticResource BoolToVis}}" />
                         <TextBlock Text="Active" FontSize="11" VerticalAlignment="Center"
                                    Foreground="{DynamicResource AccentBrush}"
                                    Visibility="{Binding IsWorkActive, Converter={StaticResource BoolToVis}}" />
@@ -268,12 +164,27 @@
                 </ItemsControl.ItemTemplate>
               </ItemsControl>
 
-              <DockPanel Margin="0,8,0,8">
-                <Button DockPanel.Dock="Right" Content="Add" Command="{Binding AddTaskCommand}"
+              <DockPanel Margin="0,8,0,12">
+                <Button DockPanel.Dock="Right" Content="Add task" Command="{Binding AddTaskCommand}"
                         Style="{DynamicResource SecondaryButton}" Margin="8,0,0,0" />
                 <TextBox Text="{Binding QuickAddTaskTitle, UpdateSourceTrigger=PropertyChanged}"
-                         Padding="4" VerticalAlignment="Center" />
+                         Padding="4" VerticalAlignment="Center"
+                         ToolTip="Creates a planned task in this project" />
               </DockPanel>
+
+              <Border Padding="8" Margin="0,0,0,12"
+                      Background="{DynamicResource WindowBackgroundBrush}"
+                      BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                <StackPanel>
+                  <TextBlock Text="Optional deadline" FontSize="11"
+                             Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,4" />
+                  <CheckBox Content="Set deadline" IsChecked="{Binding Selected.HasDeadline}" />
+                  <DatePicker SelectedDate="{Binding Selected.DeadlineDate}"
+                              Margin="0,4,0,0"
+                              IsEnabled="{Binding Selected.HasDeadline}"
+                              Visibility="{Binding Selected.HasDeadline, Converter={StaticResource BoolToVis}}" />
+                </StackPanel>
+              </Border>
 
               <Button Content="Save changes" Command="{Binding SaveCommand}"
                       Style="{DynamicResource PrimaryButton}" />

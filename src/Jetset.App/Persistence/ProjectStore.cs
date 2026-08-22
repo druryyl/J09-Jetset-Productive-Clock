@@ -19,7 +19,7 @@ public sealed class ProjectStore : IProjectStore
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, Name, Deadline, CreatedAt, UpdatedAt
+            SELECT Id, Name, Deadline, ContextText, ContextUpdatedAt, CreatedAt, UpdatedAt
             FROM Project
             WHERE Id = @id;
             """;
@@ -35,7 +35,7 @@ public sealed class ProjectStore : IProjectStore
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT Id, Name, Deadline, CreatedAt, UpdatedAt
+            SELECT Id, Name, Deadline, ContextText, ContextUpdatedAt, CreatedAt, UpdatedAt
             FROM Project
             ORDER BY UpdatedAt DESC;
             """;
@@ -56,11 +56,11 @@ public sealed class ProjectStore : IProjectStore
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT p.Id, p.Name, p.Deadline, p.CreatedAt, p.UpdatedAt,
+            SELECT p.Id, p.Name, p.Deadline, p.ContextText, p.ContextUpdatedAt, p.CreatedAt, p.UpdatedAt,
                    COUNT(t.Id) AS TaskCount
             FROM Project p
             LEFT JOIN "Task" t ON t.ProjectId = p.Id
-            GROUP BY p.Id, p.Name, p.Deadline, p.CreatedAt, p.UpdatedAt
+            GROUP BY p.Id, p.Name, p.Deadline, p.ContextText, p.ContextUpdatedAt, p.CreatedAt, p.UpdatedAt
             ORDER BY p.UpdatedAt DESC;
             """;
 
@@ -71,7 +71,7 @@ public sealed class ProjectStore : IProjectStore
             results.Add(new ProjectSummary
             {
                 Project = ReadProject(reader),
-                TaskCount = reader.GetInt32(5)
+                TaskCount = reader.GetInt32(7)
             });
         }
 
@@ -84,8 +84,8 @@ public sealed class ProjectStore : IProjectStore
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            INSERT INTO Project (Id, Name, Deadline, CreatedAt, UpdatedAt)
-            VALUES (@id, @name, @deadline, @createdAt, @updatedAt);
+            INSERT INTO Project (Id, Name, Deadline, ContextText, ContextUpdatedAt, CreatedAt, UpdatedAt)
+            VALUES (@id, @name, @deadline, @contextText, @contextUpdatedAt, @createdAt, @updatedAt);
             """;
         BindProject(command, project);
         command.ExecuteNonQuery();
@@ -100,6 +100,8 @@ public sealed class ProjectStore : IProjectStore
             UPDATE Project SET
                 Name = @name,
                 Deadline = @deadline,
+                ContextText = @contextText,
+                ContextUpdatedAt = @contextUpdatedAt,
                 UpdatedAt = @updatedAt
             WHERE Id = @id;
             """;
@@ -123,6 +125,10 @@ public sealed class ProjectStore : IProjectStore
         command.Parameters.AddWithValue(
             "@deadline",
             (object?)project.Deadline?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? DBNull.Value);
+        command.Parameters.AddWithValue("@contextText", (object?)project.ContextText ?? DBNull.Value);
+        command.Parameters.AddWithValue(
+            "@contextUpdatedAt",
+            (object?)project.ContextUpdatedAt?.ToString("O", CultureInfo.InvariantCulture) ?? DBNull.Value);
         if (includeCreatedAt)
         {
             command.Parameters.AddWithValue(
@@ -144,8 +150,12 @@ public sealed class ProjectStore : IProjectStore
             Deadline = reader.IsDBNull(2)
                 ? null
                 : DateOnly.ParseExact(reader.GetString(2), "yyyy-MM-dd", CultureInfo.InvariantCulture),
-            CreatedAt = DateTimeOffset.Parse(reader.GetString(3), CultureInfo.InvariantCulture),
-            UpdatedAt = DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture)
+            ContextText = reader.IsDBNull(3) ? null : reader.GetString(3),
+            ContextUpdatedAt = reader.IsDBNull(4)
+                ? null
+                : DateTimeOffset.Parse(reader.GetString(4), CultureInfo.InvariantCulture),
+            CreatedAt = DateTimeOffset.Parse(reader.GetString(5), CultureInfo.InvariantCulture),
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture)
         };
     }
 }

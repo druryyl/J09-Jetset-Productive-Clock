@@ -14,17 +14,15 @@ public class IdleAutoPauseControllerTests
         public TimeSpan GetIdleTime() => IdleTime;
     }
 
-    private static (IdleAutoPauseController Controller, SessionService Sessions, InMemoryTaskStore TaskStore, FakeIdleService Idle, AppSettings Settings, ContextSnapshotService Snapshots)
+    private static (IdleAutoPauseController Controller, SessionService Sessions, InMemoryTaskStore TaskStore, FakeIdleService Idle, AppSettings Settings)
         CreateHarness(DateTimeOffset start, bool autoPause = true, int timeoutMinutes = 5, bool autoResume = true)
     {
         var now = start;
         var store = new InMemorySessionStore();
         var taskStore = new InMemoryTaskStore();
-        var snapshotStore = new InMemoryContextSnapshotStore();
-        var sessions = new SessionService(store, taskStore, null, () => now);
+        var sessions = new SessionService(store, taskStore, () => now);
         var tasks = new TaskService(taskStore, () => now);
-        var snapshots = new ContextSnapshotService(snapshotStore, taskStore, () => now);
-        var execution = new WorkExecutionService(sessions, tasks, snapshots);
+        var execution = new WorkExecutionService(sessions, tasks);
         var idle = new FakeIdleService();
         var settings = new AppSettings
         {
@@ -33,7 +31,7 @@ public class IdleAutoPauseControllerTests
             AutoResumeAfterIdle = autoResume
         };
         var controller = new IdleAutoPauseController(sessions, execution, idle, () => settings);
-        return (controller, sessions, taskStore, idle, settings, snapshots);
+        return (controller, sessions, taskStore, idle, settings);
     }
 
     private static void StartWork(SessionService sessions, InMemoryTaskStore taskStore, DateTimeOffset now)
@@ -42,7 +40,7 @@ public class IdleAutoPauseControllerTests
         {
             Id = Guid.NewGuid(),
             Title = "Work",
-            Status = TaskStatus.Active,
+            Status = TaskStatus.Ready,
             CreatedAt = now,
             UpdatedAt = now
         };
@@ -54,7 +52,7 @@ public class IdleAutoPauseControllerTests
     public void GivenIdlePastTimeout_WhenEvaluate_ThenPausesOnce()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, idle, _, _) = CreateHarness(start);
+        var (controller, sessions, taskStore, idle, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
         idle.IdleTime = TimeSpan.FromMinutes(5);
@@ -69,27 +67,25 @@ public class IdleAutoPauseControllerTests
     }
 
     [Fact]
-    public void GivenIdlePastTimeout_WhenEvaluate_ThenCapturesSnapshot()
+    public void GivenIdlePastTimeout_WhenEvaluate_ThenPausesSession()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, idle, _, snapshots) = CreateHarness(start);
+        var (controller, sessions, taskStore, idle, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
-        var taskId = sessions.ActiveSession!.TaskId;
         idle.IdleTime = TimeSpan.FromMinutes(5);
 
         controller.Evaluate();
 
-        var latest = snapshots.GetLatest(taskId);
-        Assert.NotNull(latest);
-        Assert.Equal(taskId, latest.TaskId);
+        Assert.Equal(SessionState.Paused, sessions.ActiveSession!.State);
+        Assert.True(controller.PausedByIdle);
     }
 
     [Fact]
     public void GivenAlreadyIdlePaused_WhenStillIdle_ThenDoesNotThrowOrRepause()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, idle, _, _) = CreateHarness(start);
+        var (controller, sessions, taskStore, idle, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
         idle.IdleTime = TimeSpan.FromMinutes(10);
@@ -108,7 +104,7 @@ public class IdleAutoPauseControllerTests
     public void GivenIdleCausedPause_WhenActivityReturnsWithAutoResume_ThenResumes()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, idle, _, _) = CreateHarness(start);
+        var (controller, sessions, taskStore, idle, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
         idle.IdleTime = TimeSpan.FromMinutes(5);
@@ -126,7 +122,7 @@ public class IdleAutoPauseControllerTests
     public void GivenManualPause_WhenActivityReturns_ThenDoesNotAutoResume()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, idle, _, _) = CreateHarness(start);
+        var (controller, sessions, taskStore, idle, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
         controller.NotifyManualPause();
@@ -143,7 +139,7 @@ public class IdleAutoPauseControllerTests
     public void GivenFeatureDisabled_WhenIdle_ThenDoesNotPause()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, idle, _, _) = CreateHarness(start, autoPause: false);
+        var (controller, sessions, taskStore, idle, _) = CreateHarness(start, autoPause: false);
 
         StartWork(sessions, taskStore, start);
         idle.IdleTime = TimeSpan.FromMinutes(30);
@@ -157,7 +153,7 @@ public class IdleAutoPauseControllerTests
     public void GivenLockWhileRunning_WhenAutoPauseEnabled_ThenPausesAsIdle()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, _, _, _) = CreateHarness(start);
+        var (controller, sessions, taskStore, _, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
         controller.OnSessionLockedOrSuspended();
@@ -170,7 +166,7 @@ public class IdleAutoPauseControllerTests
     public void GivenIdlePause_WhenUnlockedWithAutoResume_ThenResumes()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, _, _, _) = CreateHarness(start);
+        var (controller, sessions, taskStore, _, _) = CreateHarness(start);
 
         StartWork(sessions, taskStore, start);
         controller.OnSessionLockedOrSuspended();
@@ -184,7 +180,7 @@ public class IdleAutoPauseControllerTests
     public void GivenIdlePause_WhenAutoResumeDisabled_ThenUnlockDoesNotResume()
     {
         var start = new DateTimeOffset(2026, 8, 10, 9, 0, 0, TimeSpan.Zero);
-        var (controller, sessions, taskStore, _, _, _) = CreateHarness(start, autoResume: false);
+        var (controller, sessions, taskStore, _, _) = CreateHarness(start, autoResume: false);
 
         StartWork(sessions, taskStore, start);
         controller.OnSessionLockedOrSuspended();

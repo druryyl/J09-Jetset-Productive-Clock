@@ -53,6 +53,8 @@ public sealed class InMemoryProjectStore : IProjectStore
         Id = p.Id,
         Name = p.Name,
         Deadline = p.Deadline,
+        ContextText = p.ContextText,
+        ContextUpdatedAt = p.ContextUpdatedAt,
         CreatedAt = p.CreatedAt,
         UpdatedAt = p.UpdatedAt
     };

@@ -47,23 +47,22 @@ public class ProjectServiceTests : IDisposable
         }
     }
 
-    private static (ProjectService Projects, TaskService Tasks, InMemoryProjectStore ProjectStore, InMemoryTaskStore TaskStore, InMemoryMilestoneStore MilestoneStore, Action<DateTimeOffset> SetNow)
+    private static (ProjectService Projects, TaskService Tasks, InMemoryProjectStore ProjectStore, InMemoryTaskStore TaskStore, Action<DateTimeOffset> SetNow)
         CreateHarness(DateTimeOffset start)
     {
         var now = start;
         var taskStore = new InMemoryTaskStore();
         var projectStore = new InMemoryProjectStore(() => taskStore.List());
-        var milestoneStore = new InMemoryMilestoneStore();
-        var projects = new ProjectService(projectStore, taskStore, milestoneStore, () => now);
-        var tasks = new TaskService(taskStore, projectStore, milestoneStore, () => now);
-        return (projects, tasks, projectStore, taskStore, milestoneStore, value => now = value);
+        var projects = new ProjectService(projectStore, taskStore, () => now);
+        var tasks = new TaskService(taskStore, projectStore, () => now);
+        return (projects, tasks, projectStore, taskStore, value => now = value);
     }
 
     [Fact]
     public void Create_WithName_PersistsProject()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (projects, _, store, _, _, _) = CreateHarness(start);
+        var (projects, _, store, _, _) = CreateHarness(start);
 
         var project = projects.Create("Jetset");
 
@@ -80,7 +79,7 @@ public class ProjectServiceTests : IDisposable
     [Fact]
     public void Create_WithBlankName_Throws()
     {
-        var (projects, _, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (projects, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         Assert.Throws<ArgumentException>(() => projects.Create("   "));
         Assert.Throws<ArgumentException>(() => projects.Create(""));
@@ -90,7 +89,7 @@ public class ProjectServiceTests : IDisposable
     public void Create_WithDeadline_StoresDate()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (projects, _, store, _, _, _) = CreateHarness(start);
+        var (projects, _, store, _, _) = CreateHarness(start);
         var deadline = new DateOnly(2026, 9, 30);
 
         var project = projects.Create("School SIS", deadline);
@@ -103,7 +102,7 @@ public class ProjectServiceTests : IDisposable
     public void Update_ChangesNameAndDeadline()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
-        var (projects, _, _, _, _, setNow) = CreateHarness(start);
+        var (projects, _, _, _, setNow) = CreateHarness(start);
 
         var project = projects.Create("Original");
         setNow(start.AddMinutes(5));
@@ -121,7 +120,7 @@ public class ProjectServiceTests : IDisposable
     [Fact]
     public void Delete_UnassignsTasksThenRemovesProject()
     {
-        var (projects, tasks, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (projects, tasks, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         var project = projects.Create("To delete");
         var task = tasks.Create("Linked task", project.Id);
@@ -133,13 +132,12 @@ public class ProjectServiceTests : IDisposable
         var reloaded = tasks.Get(task.Id);
         Assert.NotNull(reloaded);
         Assert.Null(reloaded!.ProjectId);
-        Assert.Null(reloaded.MilestoneId);
     }
 
     [Fact]
     public void List_ReturnsTaskCounts()
     {
-        var (projects, tasks, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+        var (projects, tasks, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
 
         var empty = projects.Create("Empty");
         var one = projects.Create("One task");
@@ -155,6 +153,95 @@ public class ProjectServiceTests : IDisposable
         Assert.Equal(0, list.Single(s => s.Project.Id == empty.Id).TaskCount);
         Assert.Equal(1, list.Single(s => s.Project.Id == one.Id).TaskCount);
         Assert.Equal(2, list.Single(s => s.Project.Id == many.Id).TaskCount);
+    }
+
+    [Fact]
+    public void GetContextText_ReturnsStoredValue()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (projects, _, _, _, setNow) = CreateHarness(start);
+
+        var project = projects.Create("Context project");
+        setNow(start.AddMinutes(1));
+        projects.UpdateContextText(project.Id, "Resume with API design notes.");
+
+        Assert.Equal("Resume with API design notes.", projects.GetContextText(project.Id));
+        Assert.Equal("Resume with API design notes.", projects.Get(project.Id)!.ContextText);
+        Assert.Equal(start.AddMinutes(1), projects.Get(project.Id)!.ContextUpdatedAt);
+    }
+
+    [Fact]
+    public void UpdateContextText_TrimsAndClearsEmpty()
+    {
+        var (projects, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+
+        var project = projects.Create("Trim test");
+        projects.UpdateContextText(project.Id, "  spaced context  ");
+
+        Assert.Equal("spaced context", projects.GetContextText(project.Id));
+
+        projects.UpdateContextText(project.Id, "   ");
+        Assert.Null(projects.GetContextText(project.Id));
+        Assert.Null(projects.Get(project.Id)!.ContextUpdatedAt);
+    }
+
+    [Fact]
+    public void UpdateContextText_DoesNotChangeProjectUpdatedAt()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (projects, _, _, _, setNow) = CreateHarness(start);
+
+        var project = projects.Create("Independent context");
+        setNow(start.AddHours(1));
+        projects.UpdateContextText(project.Id, "Context only edit");
+
+        Assert.Equal(start, projects.Get(project.Id)!.UpdatedAt);
+        Assert.Equal(start.AddHours(1), projects.Get(project.Id)!.ContextUpdatedAt);
+    }
+
+    [Fact]
+    public void Update_PreservesContextText()
+    {
+        var (projects, _, _, _, _) = CreateHarness(DateTimeOffset.UtcNow);
+
+        var project = projects.Create("Preserve context");
+        projects.UpdateContextText(project.Id, "Keep this");
+
+        project.Name = "Renamed";
+        var updated = projects.Update(project);
+
+        Assert.Equal("Keep this", updated.ContextText);
+        Assert.Equal("Keep this", projects.GetContextText(project.Id));
+    }
+
+    [Fact]
+    public void ProjectStore_PersistsContextTextAcrossStoreInstances()
+    {
+        var path = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.db");
+        _dbPaths.Add(path);
+        var factory = new SqliteConnectionFactory(path);
+        new SchemaInitializer(factory).Initialize();
+
+        var id = Guid.NewGuid();
+        var now = new DateTimeOffset(2026, 8, 22, 12, 0, 0, TimeSpan.Zero);
+        var contextUpdatedAt = now.AddMinutes(10);
+        var firstStore = new ProjectStore(factory);
+        firstStore.Insert(new Project
+        {
+            Id = id,
+            Name = "Persisted project",
+            ContextText = "Ship the dashboard",
+            ContextUpdatedAt = contextUpdatedAt,
+            CreatedAt = now,
+            UpdatedAt = now
+        });
+
+        var secondStore = new ProjectStore(factory);
+        var loaded = secondStore.Get(id);
+
+        Assert.NotNull(loaded);
+        Assert.Equal("Ship the dashboard", loaded!.ContextText);
+        Assert.Equal(contextUpdatedAt, loaded.ContextUpdatedAt);
     }
 
     [Fact]

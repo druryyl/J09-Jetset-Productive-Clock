@@ -7,26 +7,15 @@ public sealed class ProjectService
 {
     private readonly IProjectStore _store;
     private readonly ITaskStore _taskStore;
-    private readonly IMilestoneStore? _milestoneStore;
     private readonly Func<DateTimeOffset> _clock;
 
     public ProjectService(
         IProjectStore store,
         ITaskStore taskStore,
         Func<DateTimeOffset>? clock = null)
-        : this(store, taskStore, milestoneStore: null, clock)
-    {
-    }
-
-    public ProjectService(
-        IProjectStore store,
-        ITaskStore taskStore,
-        IMilestoneStore? milestoneStore,
-        Func<DateTimeOffset>? clock = null)
     {
         _store = store;
         _taskStore = taskStore;
-        _milestoneStore = milestoneStore;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
@@ -58,6 +47,36 @@ public sealed class ProjectService
 
     public IReadOnlyList<Project> ListProjects() => _store.List();
 
+    public string? GetContextText(Guid projectId)
+    {
+        var project = _store.Get(projectId)
+            ?? throw new InvalidOperationException($"Project {projectId} was not found.");
+
+        return project.ContextText;
+    }
+
+    public Project UpdateContextText(Guid projectId, string? contextText)
+    {
+        var existing = _store.Get(projectId)
+            ?? throw new InvalidOperationException($"Project {projectId} was not found.");
+
+        var normalized = string.IsNullOrWhiteSpace(contextText) ? null : contextText.Trim();
+        var now = _clock();
+        var updated = new Project
+        {
+            Id = existing.Id,
+            Name = existing.Name,
+            Deadline = existing.Deadline,
+            ContextText = normalized,
+            ContextUpdatedAt = normalized is null ? null : now,
+            CreatedAt = existing.CreatedAt,
+            UpdatedAt = existing.UpdatedAt
+        };
+
+        _store.Update(updated);
+        return updated;
+    }
+
     public Project Update(Project project)
     {
         ArgumentNullException.ThrowIfNull(project);
@@ -76,6 +95,8 @@ public sealed class ProjectService
             Id = existing.Id,
             Name = trimmed,
             Deadline = project.Deadline,
+            ContextText = existing.ContextText,
+            ContextUpdatedAt = existing.ContextUpdatedAt,
             CreatedAt = existing.CreatedAt,
             UpdatedAt = _clock()
         };
@@ -92,7 +113,6 @@ public sealed class ProjectService
         }
 
         _taskStore.UnassignAllFromProject(id);
-        _milestoneStore?.DeleteByProject(id);
         _store.Delete(id);
     }
 }

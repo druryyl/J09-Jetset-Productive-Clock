@@ -1,726 +1,746 @@
 # Jetset V2 Implementation Plan
 
-**Version:** 1.0  
+**Version:** 2.1  
 **Status:** Approved Artifact  
 **Source of Truth:** [DOMAIN.md](./DOMAIN.md)  
-**Date:** 2026-08-22
+**Date:** 2026-08-22  
+**Supersedes:** Implementation Plan v2.0
 
 ---
 
 ## Executive Summary
 
-Jetset today is a **V1 personal work-session timer**: WPF/.NET 10, SQLite, MVVM. It tracks stopwatch/countdown sessions with pause/resume, parallel paused sessions ("Waiting"), daily totals, and history. It has **no first-class domain model** for projects, tasks, milestones, context, or analytics.
+The Jetset codebase has evolved beyond V1 into a **V2-draft productivity layer** that closely followed the old implementation plan. That plan treated Jetset as a lightweight project-management system: milestones, task-level context, context snapshots, resume queue, project momentum, and context-switch metrics.
 
-V2 transforms Jetset into a **Personal Productivity Workspace** while preserving the strong session engine. This plan uses **Vertical Slice Architecture**: each slice delivers one user-visible capability end-to-end (schema → service → UI → tests), organized into incremental delivery waves.
+The **approved DOMAIN.md** has since been rewritten. Jetset is now defined as a **Personal Execution Workspace** — task-first, single Running task, project-scoped context, minimal analytics.
 
-**Scope:** Implement ONLY Jetset V2 capabilities described in DOMAIN.md.  
-**Excluded:** Context Reload Score, Context Freshness, Resume Recommendation, Stale Task Detection, WIP Health Score, Focus Capacity Monitoring, Productivity Coaching, AI Features, and any V3+ roadmap capability.
+**This plan does not preserve the old roadmap.** It evaluates the current codebase against DOMAIN.md and defines the shortest practical path to domain alignment.
+
+### v2.1 refinements (2026-08-22)
+
+| Decision | Change |
+|---|---|
+| **#1 Simplify project context** | `ContextText` on `Project` — no structured `ProjectContext` entity |
+| **#2 Session engine position** | **Option B:** supporting capability; task execution is primary |
+| **#3 Quick Capture** | First-class capability with dedicated roadmap slices |
+| **#4 Task switching** | Default → `Ready`; user-initiated → `Waiting`; quick capture does not switch |
+
+### Strategic posture
+
+| Principle | Implication |
+|---|---|
+| DOMAIN.md is source of truth | Old slices S-03 through S-13, S-17, S-18 are **invalid** |
+| Codebase is starting material | Reuse session engine, migrations, MVVM shell — not the draft domain model |
+| Refactor over rewrite | Adapt `TaskService`, `WorkExecutionService`, views — do not rebuild from scratch |
+| Simplification over expansion | Remove conflicting features before adding missing ones |
+| Incremental delivery | Each wave is shippable and moves the product closer to DOMAIN.md |
 
 ---
 
-# 1. Current State Analysis
+# 1. Current State Assessment
 
-## 1.1 Architecture
+## 1.1 Technology Stack
 
-| Layer | Technology | Notes |
+| Layer | Technology | Status |
 |---|---|---|
-| Runtime | .NET 10 (`net10.0-windows`) | Windows desktop only |
-| UI | WPF + MVVM | Manual `ObservableObject` / `RelayCommand` |
-| Persistence | SQLite via `Microsoft.Data.Sqlite` | `%LocalAppData%\Jetset\jetset.db` |
-| Schema | Inline DDL in `SchemaInitializer` | No versioned migrations |
-| Tests | xUnit | Session logic only |
-| Composition | `AppServices.cs` | Single composition root |
+| Runtime | .NET 10 (`net10.0-windows`), WPF | Stable |
+| UI pattern | MVVM (`ObservableObject`, `RelayCommand`) | Stable |
+| Persistence | SQLite via `Microsoft.Data.Sqlite` | Stable |
+| Schema evolution | Versioned migrations 001–007 + backup + validation | Stable |
+| Tests | xUnit — 12 test files | Good coverage of draft V2 features |
+| Composition | `AppServices.cs` single root | Stable |
 
-No web API, no EF Core, no multi-user auth — intentionally single-user desktop.
+## 1.2 What Exists Today
 
-## 1.2 Existing Database Schema
+### Session engine (V1 core — supporting capability)
 
-Three tables in `SchemaInitializer.cs`:
+`SessionService` provides stopwatch/countdown sessions, pause-aware `WorkInterval` duration, crash recovery, daily totals, and idle auto-pause. This is a **valuable implementation asset** but a **supporting capability** per DOMAIN.md §7.1 and approved design decision #2 (Option B).
 
-**WorkSession** — session-centric, free-text `TaskName` (not a FK):
+Task execution (`TaskService`) is the primary authority. Sessions follow Running tasks — not the reverse. The session engine should be retained and simplified, not extended with new session-centric features (parallel paused sessions, resume-from-session queues).
+
+Sessions are linked to tasks via `WorkSession.TaskId` (migration 006). Legacy `TaskName` column remains for backfill compatibility.
+
+### Domain layer (V2-draft — partially misaligned)
+
+| Component | Files | State |
+|---|---|---|
+| `WorkTask` | `Models/WorkTask.cs` | Exists; has task-level context fields + `MilestoneId` |
+| `Project` | `Models/Project.cs` | Exists; has optional `Deadline` |
+| `Milestone` | `Models/Milestone.cs` + store + service | **Conflicts with DOMAIN.md** |
+| `ContextSnapshot` | Model + store + service | **Conflicts with DOMAIN.md** |
+| `WorkingContext` | `Models/WorkingContext.cs` | Task-level; **conflicts** |
+| `ResumeQueueEntry` | Model + `ResumeQueueService` | **Conflicts with DOMAIN.md** |
+| `TaskSwitchEvent` | Model + store | **Conflicts with DOMAIN.md** |
+| `TaskStatus` | `Active, Blocked, Done, Cancelled` | **Divergent** from DOMAIN.md |
+| `TaskOrigin` | — | **Missing** |
+| `ProjectContext` | — | **Not needed** — use `ContextText` on `Project` |
+
+### Services
+
+| Service | Alignment | Notes |
+|---|---|---|
+| `SessionService` | ✅ Keep (supporting) | Timer engine; simplify over time, do not extend |
+| `TaskService` | ⚠️ Modify | CRUD works; wrong statuses, task context, milestone coupling; add Quick Capture + switching |
+| `ProjectService` | ⚠️ Modify | CRUD works; add `ContextText`; simplify delete |
+| `WorkExecutionService` | ⚠️ Modify | Orchestration is right pattern; snapshot/context capture is wrong |
+| `MilestoneService` | ❌ Remove | Not in DOMAIN.md |
+| `ContextSnapshotService` | ❌ Remove | Not in DOMAIN.md |
+| `ResumeQueueService` | ❌ Remove | Not in DOMAIN.md |
+| `AnalyticsService` | ⚠️ Simplify | Keep focus/heatmap/streak; remove momentum + switch metrics |
+| `SettingsService`, `TrayService`, etc. | ✅ Keep | Desktop UX |
+
+### Database (migrations 001–007)
+
+```
+SchemaVersion
+WorkSession (+ TaskId)
+WorkInterval
+AppSetting
+Task (+ task-level context columns, MilestoneId)
+Project (+ Deadline)
+Milestone                    ← remove
+ContextSnapshot              ← remove
+TaskSwitchEvent              ← remove
+```
+
+Missing: `Project.ContextText`, `Task.Origin`, `Task.CompletedAt`, `Task.Status` values for Inbox/Ready/Running/Waiting.
+
+### UI (navigation shell exists)
+
+| Area | View | Current behavior | Domain alignment |
+|---|---|---|---|
+| Focus | `FocusView` | Timer, task context panel, resume queue, start panel | Session UI good; context/queue wrong |
+| Tasks | `TasksView` | Task CRUD, task context, snapshots, milestones | Needs lifecycle + removal of task context |
+| Projects | `ProjectsView` | Milestones, momentum chart, task list | Needs project context panel; remove milestones/momentum |
+| Analytics | `AnalyticsView` | Streak, heatmap, momentum, switch metrics | Keep streak/heatmap; remove momentum/switches |
+| Modal | `ContextCaptureDialog` | Prompts on pause/switch/finish | **Remove** — violates BR-4 |
+| Other | History, Settings, Recovery, V2Welcome | Functional | Update welcome copy after realignment |
+
+### Test coverage
+
+Tests exist for all draft V2 services including milestones, snapshots, resume queue, and analytics. Tests for removed features will be deleted or rewritten during realignment slices.
+
+## 1.3 Current vs DOMAIN.md — At a Glance
+
+```
+DOMAIN.md target                    Current codebase
+─────────────────                   ─────────────────
+Task-first execution          →     Session-first execution
+Single Running task           →     Multiple Active tasks + paused sessions
+Context on Project            →     Context on Task + Snapshots
+Inbox/Ready/Running/Waiting   →     Active/Blocked/Done/Cancelled
+No milestones                 →     Full milestone stack
+No resume queue               →     ResumeQueueService + Focus panel
+Minimal analytics             →     + Project Momentum + Switch Metrics
+Planned/Unplanned origin      →     Not implemented
+Project ContextText           →     Not implemented
+Quick Capture (first-class)   →     Partial (task create only; no hotkey/non-disrupting capture)
+```
+
+---
+
+# 2. Domain Alignment Analysis
+
+## 2.1 Aligned (keep as-is or minor adaptation)
+
+| DOMAIN.md concept | Codebase evidence | Action |
+|---|---|---|
+| Single-user local desktop | WPF + SQLite, no auth | Keep |
+| Task as execution unit | `WorkTask`, `TaskService`, task-linked sessions | Keep; extend lifecycle |
+| Project optional | `Task.ProjectId` nullable | Keep |
+| Work session on task | `WorkSession.TaskId`, migration 006 | Keep |
+| Time tracking supporting | `SessionService`, intervals, idle pause | Keep |
+| Navigation areas | `ShellArea`: Focus, Tasks, Projects, Analytics | Keep structure |
+| Global search | `GlobalSearchViewModel` | Keep; search task title (+ project context later) |
+| Focus time / daily summary | `AnalyticsService.GetDailySummary` | Keep |
+| Activity heatmap | `AnalyticsService.GetActivityHeatmap` | Keep |
+| Productive streak | `AnalyticsService.GetStreak` | Keep |
+| Session history | `HistoryWindow` | Keep |
+| Schema migrations | Migrations 001–007 | Keep; add realignment migrations |
+| Project delete detaches tasks | `ProjectService.Delete` | Keep behavior |
+
+## 2.2 Divergent (must change)
+
+| DOMAIN.md rule | Current violation | Required change |
+|---|---|---|
+| BR-1/BR-2: Single Running task | Task status never `Running`; multiple Active tasks with paused sessions | Add `Running` status; enforce in `TaskService.StartTask()` |
+| BR-3: Context on Project | Five context fields on `Task` table | Add `ContextText` on `Project`; remove task context columns |
+| BR-4: Context independent of lifecycle | `ContextCaptureDialog` on pause/switch/finish; auto snapshots | Remove lifecycle hooks and dialog |
+| BR-6: Origin visibility only | No `TaskOrigin` | Add enum column |
+| §4.1: Six task states | Four states (`Active/Blocked`) | Migrate to `Inbox/Ready/Running/Waiting/Done/Cancelled` |
+| §8: No milestones | Full milestone stack | Remove |
+| §8: No context snapshots | `ContextSnapshot` table + service | Remove |
+| §8: No resume queue | `ResumeQueueService` + Focus panel | Remove; replace with task status lists |
+| §7.2: No momentum/switch metrics | Implemented in analytics | Remove |
+| §3.3: `CompletedAt` | Uses `UpdatedAt` proxy | Add column |
+
+## 2.3 Inverted architecture (root cause)
+
+The draft V2 treated **sessions** as the execution primitive and **tasks** as metadata attached to sessions. DOMAIN.md treats **tasks** as the execution primitive with sessions as a supporting time record.
+
+```
+Current (wrong):                    Target (DOMAIN.md):
+
+SessionService                      TaskService.StartTask()
+  └─ one running session              └─ one Running task (BR-1)
+  └─ multiple paused sessions           └─ triggers session start/pause
+       └─ ResumeQueue derived                └─ previous task → Ready (default)
+WorkExecutionService                    WorkExecutionService
+  └─ preserves task context                 └─ coordinates task + session
+  └─ captures snapshots                     └─ no context side effects
+                                            Quick Capture → Inbox only (BR-11)
+```
+
+The realignment centers on making `TaskService` the authority for execution state, with `WorkExecutionService` coordinating sessions as a side effect.
+
+---
+
+# 3. Feature Retention Decisions
+
+| Feature | Decision | Rationale |
+|---|---|---|
+| **Session engine** | ✅ Keep (supporting) | DOMAIN.md §7.1 Option B; retain V1 engine, simplify — do not extend |
+| **Task CRUD** | ✅ Keep | Core domain; refactor status model |
+| **Project CRUD** | ✅ Keep | Optional grouping per DOMAIN.md §3.1 |
+| **WorkSession → TaskId** | ✅ Keep | Already implemented (M006) |
+| **Navigation shell** | ✅ Keep | Focus/Tasks/Projects/Analytics maps to DOMAIN.md §11.5 |
+| **Global search** | ✅ Keep | Process 3/4 entry point; retarget to task title + `ContextText` |
+| **Quick Capture** | ✅ Keep + elevate | First-class capability (decision #3); `CaptureToInbox` without disturbing Running task |
+| **Start work from task** | ✅ Keep | Process 3; wire to single Running task |
+| **Daily focus time** | ✅ Keep | DOMAIN.md §7.2 in-scope |
+| **Session history** | ✅ Keep | DOMAIN.md §7.2 in-scope |
+| **Activity heatmap** | ✅ Keep | DOMAIN.md §7.2 in-scope |
+| **Productive streak** | ✅ Keep | DOMAIN.md §7.2 in-scope |
+| **Per-task focus breakdown** | ✅ Keep | Supports personal awareness |
+| **Project optional deadline** | ⚠️ Keep as optional metadata | DOMAIN.md allows optional project attributes; not a planning driver — hide or de-emphasize in UI |
+| **Task notes** | ⚠️ Keep (optional) | DOMAIN.md §3.3 allows optional notes; not context replacement |
+| **Crash recovery** | ✅ Keep | Desktop reliability |
+| **Idle auto-pause** | ✅ Keep | Session support |
+| **V1 data backfill** | ✅ Keep | Migration 006 pattern; extend for status remap |
+
+---
+
+# 4. Feature Removal / Simplification Decisions
+
+| Feature | Decision | Rationale | Removal scope |
+|---|---|---|---|
+| **Milestones** | ❌ Remove | DOMAIN.md §8 | Model, store, service, migration table, UI, tests, `Task.MilestoneId` |
+| **Milestone progress** | ❌ Remove | Derived from milestones | `MilestoneProgress`, UI progress bars |
+| **Subtasks** | — Not built | DOMAIN.md §8 | No action needed |
+| **Context Snapshots** | ❌ Remove | DOMAIN.md §8; replaced by Project Context | Table, model, store, service, UI history, tests |
+| **Task-level context fields** | ❌ Remove | BR-3; context is project-scoped | `CurrentStatus`, `LastProgress`, `NextAction`, `Blocker` on Task; `WorkingContext` model |
+| **Context capture on lifecycle** | ❌ Remove | BR-4 | `ContextCaptureDialog`, `WorkExecutionService.PreserveContext`, ViewModel tests |
+| **Resume Queue** | ❌ Remove | DOMAIN.md §8 | `ResumeQueueService`, `ResumeQueueEntry`, Focus panel, tests |
+| **Project Momentum** | ❌ Remove | DOMAIN.md §7.2 out-of-scope | `GetProjectMomentum`, Analytics/Projects UI, `ProjectMomentumViewModels` |
+| **Context Switch Metrics** | ❌ Remove | DOMAIN.md §7.2 out-of-scope | `TaskSwitchEvent` table, store, recording in `SessionService`, Analytics UI |
+| **Resume Queue UI labels** | ❌ Remove | Cosmetic "Ready"/"Waiting" on queue items | Replaced by real task statuses |
+| **V2 Welcome (draft copy)** | ⚠️ Rewrite | References milestones, snapshots, queue, momentum | Update after realignment |
+| **README (draft copy)** | ⚠️ Rewrite | Same issue | Update after realignment |
+
+### Simplification: Focus view "Waiting" panel
+
+The current Focus view shows a **resume queue** of paused sessions. DOMAIN.md does not define this.
+
+**Replace with:** A compact list of **Ready** and **Waiting** tasks (by task status), clickable to start work. Paused sessions remain an implementation detail of the session engine, not a user-facing queue concept.
+
+### Simplification: Parallel paused sessions
+
+The session engine allows multiple paused in-progress sessions. DOMAIN.md requires only one Running task. After realignment:
+
+- Starting task B pauses task A's session AND sets task A to **Ready** by default (or **Waiting** if user explicitly marks blocked)
+- Quick capture to Inbox does **not** change the Running task or its session
+- Orphaned paused sessions without a Running task should be completable or discardable
+- Long term: phase out multiple paused sessions across tasks; session engine serves the Running task only
+
+---
+
+# 5. Missing Capability Analysis
+
+| DOMAIN.md capability | Current state | Gap |
+|---|---|---|
+| **Project ContextText** | Not implemented | Add `ContextText` + `ContextUpdatedAt` on `Project`; editable in project detail |
+| **Task lifecycle (6 states)** | 4 wrong states | Enum remap + migration + UI filters/transitions |
+| **Single Running task** | Session-only enforcement | `TaskService.StartTask` + `WorkExecutionService` coordination |
+| **Task switching behavior** | Implicit Ready only | Default → Ready; explicit action → Waiting; preserve Waiting on re-switch |
+| **TaskOrigin** | Missing | Enum + column + UI badge/filter |
+| **CompletedAt** | Missing | Column; set on Done transition |
+| **Quick Capture (first-class)** | Basic task create | `CaptureToInbox` API; global hotkey; non-disrupting capture while Running |
+| **Inbox capture flow** | Tasks default to Active | Default new tasks to Inbox; add Inbox filter/view |
+| **Organize work (Process 2)** | Partial | Inbox → Ready transitions; project assign/detach |
+| **Project context on execute (Process 3)** | Shows task context | Show project `ContextText` when Running task has ProjectId |
+| **Context edit independent (Process 7)** | N/A | Always-editable `ContextText` on project detail |
+| **Search includes project context** | Searches task context fields | Retarget search to title + `ContextText` |
+
+### Not missing (already sufficient)
+
+- Session start/stop/pause from Focus view
+- Task creation without project
+- Project task grouping
+- Basic analytics (focus, heatmap, streak)
+- Schema migration infrastructure
+
+---
+
+# 6. Recommended Target Architecture
+
+## 6.0 Session Engine Position (Approved Decision #2)
+
+Before proceeding with implementation, the plan evaluates three positions for the session engine:
+
+| Option | Description | Assessment |
+|---|---|---|
+| **A — Core capability** | Task execution and time tracking are equally important | **Rejected.** Positions the timer as co-equal with execution. Jetset is not a Pomodoro app. |
+| **B — Supporting capability** | Task execution is primary; time tracking is secondary | **Selected.** Matches DOMAIN.md §7.1, success criterion #7, and product vision. |
+| **C — Substantially simplified** | Strip down or replace the session engine | **Partially accepted** as a long-term direction within Option B. |
+
+### Decision: Option B with gradual simplification
+
+**Rationale:**
+
+- DOMAIN.md defines task execution as the center; time tracking is §7.1 supporting capability
+- Success criterion #7: "Track focused work time as a secondary benefit, not a primary workflow"
+- The V1 session engine is a proven implementation asset (intervals, idle pause, recovery) — worth retaining
+- The draft V2 over-indexed on session-centric patterns (parallel paused sessions, resume queue, session-driven switching) that conflict with task-first execution
+
+**Implementation implications:**
+
+| Aspect | Direction |
+|---|---|
+| **Authority** | `TaskService` owns execution state. Sessions follow Running tasks. |
+| **Retain** | Interval-based duration, stopwatch/countdown, idle auto-pause, crash recovery, history |
+| **Simplify** | Phase out parallel paused sessions across tasks; one in-progress session per Running task |
+| **Do not extend** | No new session-centric features (resume queue, switch event recording, session-driven task status) |
+| **UI priority** | Focus view shows Running task first, timer second. Quick Capture is equally prominent. |
+| **WorkExecutionService** | Thin coordinator: `StartTask` → session side effect. Not a peer domain authority. |
+
+## 6.1 Domain model (target)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                     Application                          │
+│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
+│  │ TaskService │  │ProjectService│  │ SessionService │  │
+│  │ (PRIMARY —  │  │ (+ContextText)│  │ (SUPPORTING —  │  │
+│  │  execution) │  │              │  │  time tracking)│  │
+│  └──────┬──────┘  └──────┬───────┘  └───────┬────────┘  │
+│         │                │                   │           │
+│         └────────┬───────┴───────────────────┘           │
+│                  ▼                                       │
+│         WorkExecutionService                             │
+│         (coordinates task status + session)              │
+│                  │                                       │
+│         AnalyticsService (read-only, simplified)       │
+└─────────────────────────────────────────────────────────┘
+```
+
+## 6.2 Aggregate boundaries (from DOMAIN.md §11.1)
+
+| Aggregate | Root | Store | Key invariant |
+|---|---|---|---|
+| Task | `WorkTask` | `ITaskStore` | At most one `Running`; sessions align with Running |
+| Project | `Project` | `IProjectStore` | `ContextText` on project; context edits independent of tasks |
+| Work Session | `WorkSession` | `ISessionStore` | Active only while parent task is Running |
+
+## 6.3 Target schema
 
 ```sql
-CREATE TABLE IF NOT EXISTS WorkSession (
-    Id TEXT PRIMARY KEY NOT NULL,
-    TaskName TEXT NOT NULL,
-    Mode INTEGER NOT NULL,
-    StartedAt TEXT NOT NULL,
-    FinishedAt TEXT NULL,
-    CountdownDurationTicks INTEGER NULL,
-    State INTEGER NOT NULL,
-    Note TEXT NULL,
-    LastHeartbeatAt TEXT NULL,
-    CountdownEndsAt TEXT NULL,
-    CountdownRemainingTicks INTEGER NULL,
-    CountdownCompletedNotified INTEGER NOT NULL DEFAULT 0
-);
+-- Existing (retained, modified)
+Project (Id, Name, ContextText, ContextUpdatedAt,
+         CreatedAt, UpdatedAt)
+  -- Deadline: keep column, de-emphasize in UI
+
+Task (Id, Title, Status, Origin, ProjectId NULL,
+      CreatedAt, CompletedAt NULL, UpdatedAt, Notes NULL)
+  -- Removed: CurrentStatus, LastProgress, NextAction, Blocker,
+  --           MilestoneId, LastWorkedAt (optional: keep LastWorkedAt for sort)
+
+WorkSession (unchanged from M006)
+WorkInterval (unchanged)
+AppSetting (unchanged)
+SchemaVersion (unchanged)
+
+-- Removed tables
+-- Milestone, ContextSnapshot, TaskSwitchEvent
 ```
 
-**WorkInterval** — active-duration segments (pause-aware).
+## 6.4 Target enums
 
-**AppSetting** — key/value preferences.
+```csharp
+public enum TaskStatus
+{
+    Inbox = 0,
+    Ready = 1,
+    Running = 2,
+    Waiting = 3,
+    Done = 4,
+    Cancelled = 5
+}
 
-## 1.3 Existing Domain Objects
+public enum TaskOrigin
+{
+    Unplanned = 0,
+    Planned = 1
+}
+```
 
-| Object | Location | Purpose |
+## 6.5 Service responsibilities (target)
+
+| Service | Responsibility |
+|---|---|
+| `TaskService` | CRUD, search, **`CaptureToInbox`** (BR-11), status transitions, **`StartTask`/`StopTask`** with BR-1/BR-2 and switching behavior, `CompletedAt` |
+| `ProjectService` | Project CRUD, `ContextText` get/update, delete-detaches-tasks |
+| `SessionService` | Timer mechanics only (supporting); no task-switch event recording |
+| `WorkExecutionService` | `StartWork` → `TaskService.StartTask` + session side effect; `CaptureToInbox` does not touch sessions |
+| `AnalyticsService` | `GetDailySummary`, `GetFocusTime`, `GetActivityHeatmap`, `GetStreak`, `GetFocusTimeByTask` |
+
+**Removed services:** `MilestoneService`, `ContextSnapshotService`, `ResumeQueueService`
+
+## 6.6 UI structure (target)
+
+| Area | Primary actions | Key UI elements |
 |---|---|---|
-| `WorkSession` | `Models/WorkSession.cs` | Timer session with `TaskName` string |
-| `WorkInterval` | `Models/WorkInterval.cs` | Focused work segments |
-| `AppSettings` | `Models/AppSettings.cs` | UI/theme/idle preferences |
-| `SessionState` | enum: Running, Paused, Completed, Cancelled | Session lifecycle |
-| `TimerMode` | enum: Stopwatch, Countdown | Session mode |
+| **Focus** | Execute, pause, finish, switch task, **quick capture** | Running task indicator; timer (secondary); `ContextText` sidebar; Ready/Waiting picker; global hotkey capture |
+| **Tasks** | Capture, organize, transition status | Inbox filter; status badges; quick-add; assign/detach project; start work button |
+| **Projects** | Group tasks, edit context | Project list; **`ContextText` editor**; task list (no milestones) |
+| **Analytics** | Personal awareness | Streak, heatmap, daily focus, per-task breakdown |
 
-No `Project`, `Milestone`, `Task`, `Subtask`, or `ContextSnapshot` types exist.
+**Removed UI:** milestone lists, snapshot history, context capture dialog, resume queue panel, momentum charts, switch metrics section.
 
-## 1.4 Existing Services
+## 6.7 Key orchestration flows (target)
 
-| Service | Capability |
-|---|---|
-| `SessionService` | Start/pause/resume/finish/discard, `SwitchTo`, parallel sessions, recovery, daily totals |
-| `SettingsService` | App preferences |
-| `IdleAutoPauseController` | Auto pause on idle/lock/sleep |
-| `ClockService` | Testable time |
-| `NotificationService`, `TrayService`, `StartupService` | Desktop UX |
+### Quick Capture (does not switch execution)
 
-`SessionService` is the core asset: one running session, multiple paused, interval-based active duration, crash recovery.
+```
+User triggers Quick Capture (hotkey / one-click)
+  │
+  └─ TaskService.CaptureToInbox(title)
+       ├─ creates task: Status=Inbox, Origin=Unplanned
+       └─ Running task (if any) is UNCHANGED (BR-11)
+```
 
-## 1.5 Existing UI Screens
+### Start / Switch Work
 
-| Screen | Files | Capability |
+```
+User clicks "Start" on Task B
+  │
+  ├─ TaskService.StartTask(B, leavingStatus: Ready)    ← default
+  │    ├─ if Task A is Running → A.Status = Ready
+  │    └─ B.Status = Running
+  │
+  └─ WorkExecutionService
+       ├─ pause session on A
+       └─ start/resume session on B
+
+User clicks "Switch and mark waiting" on Task B
+  │
+  ├─ TaskService.StartTask(B, leavingStatus: Waiting)  ← explicit
+  │    └─ Task A.Status = Waiting
+  │
+  └─ (same session coordination)
+```
+
+### Edit project context
+
+```
+User edits ContextText on project
+  │
+  └─ ProjectService.UpdateContextText(projectId, text)
+       └─ no task or session side effects
+```
+
+---
+
+# 7. Migration Strategy
+
+## 7.1 Approach
+
+Continue the existing versioned migration pattern (001–007). Add **realignment migrations** 008+ that:
+
+1. Add new structures before removing old ones
+2. Backfill data with explicit mapping rules
+3. Drop deprecated tables/columns only after code no longer references them
+4. Run `MigrationValidationService` checks after each destructive step
+
+**Do not** rewrite migrations 001–007 — they reflect shipped history. New migrations correct the domain.
+
+## 7.2 Status mapping (migration 008)
+
+| Old `TaskStatus` | New `TaskStatus` | Rule |
 |---|---|---|
-| Main Window | `MainWindow.xaml` | Clock, timer, start panel, Waiting list, today total |
-| History | `Views/HistoryWindow.xaml` | Single-day session list, edit, delete |
-| Settings | `Views/SettingsWindow.xaml` | Theme, idle, startup, window prefs |
-| Finish Note Dialog | `Views/FinishNoteDialog.xaml` | Optional session note |
-| Recovery Dialog | `Views/RecoveryDialog.xaml` | Post-crash recovery |
+| `Active` (0) | `Ready` (1) | Default mapping |
+| `Active` with paused in-progress session | `Ready` (1) | Session state preserved separately |
+| `Active` with running session | `Running` (2) | At most one; if multiple, keep newest session's task as Running, others → Ready |
+| `Blocked` (1) | `Waiting` (3) | Direct map |
+| `Done` (2) | `Done` (4) | Set `CompletedAt` = `UpdatedAt` |
+| `Cancelled` (3) | `Cancelled` (5) | Direct map |
 
-No project views, task boards, context panels, resume queue view, or analytics dashboard.
+New quick-capture tasks default to `Inbox` (0) after migration.
 
-## 1.6 Existing Capabilities by V2 Domain Area
+## 7.3 Context migration (migration 009)
 
-| V2 Capability | Current State | Evidence |
+For each project with tasks that have task-level context data:
+
+1. Add `ContextText` and `ContextUpdatedAt` columns to `Project`
+2. Concatenate task-level context from the most recently updated task in that project into `ContextText` (best-effort; user may edit after migration)
+3. Drop task-level context columns in migration 010
+
+Standalone tasks lose context fields (DOMAIN.md §3.1 rule 9: resumption relies on title/status).
+
+## 7.4 Milestone migration (migration 010)
+
+1. Set `Task.MilestoneId` to NULL for all tasks
+2. Drop `Milestone` table
+3. Drop `Task.MilestoneId` column
+
+Tasks remain on their projects. No data loss for tasks themselves.
+
+## 7.5 Snapshot and switch event migration (migration 011)
+
+1. Drop `ContextSnapshot` table (historical snapshots are not in DOMAIN.md; acceptable data loss with pre-migration backup)
+2. Drop `TaskSwitchEvent` table
+3. Stop recording switch events in `SessionService`
+
+## 7.6 Code migration order
+
+```
+Phase A: Add new (ContextText on Project, new statuses, Origin, CompletedAt)
+Phase B: Switch code to new model (services, UI)
+Phase C: Remove old code (milestone, snapshot, queue, task context)
+Phase D: Drop old schema (migrations 010–011)
+Phase E: Update docs (README, welcome dialog)
+```
+
+## 7.7 Backward compatibility
+
+- Pre-migration DB backup already handled by `DatabaseBackupService`
+- `WorkSession.TaskName` retained until verified; drop in final polish slice
+- V1 users upgrading through 001–007 then 008+ get seamless transition
+- No export/import required
+
+---
+
+# 8. Incremental Delivery Roadmap
+
+The roadmap is ordered to **remove conflicting concepts early** (reducing maintenance burden) while **adding missing domain features** in dependency order.
+
+```
+Wave 0 ──► Stop the bleeding (remove draft-only features from active development)
+Wave 1 ──► Domain core (task lifecycle + single Running task + Quick Capture)
+Wave 2 ──► Remove conflicting features (milestones, snapshots, queue, switch metrics)
+Wave 3 ──► Project ContextText (simple free-form context on project)
+Wave 4 ──► Execution alignment + UI realignment (task ↔ session, switching, views)
+Wave 5 ──► Analytics simplification
+Wave 6 ──► Schema cleanup + polish
+```
+
+Each wave delivers a coherent, testable increment. Waves 1–3 are the critical path.
+
+---
+
+# 9. Slice / Wave Plan
+
+---
+
+## Wave 0: Freeze Draft Direction
+
+**Goal:** Prevent further drift toward project-management features. No user-visible changes.
+
+| Slice | Work | Acceptance |
 |---|---|---|
-| **Quick Task** | Partial | Free-text name at session start only; no persisted task |
-| **Project Task** | Missing | No project entity |
-| **Task Lifecycle** | Missing | Session states only, not task states |
-| **Subtasks** | Missing | — |
-| **Projects** | Missing | — |
-| **Milestones** | Missing | — |
-| **Milestone Progress** | Missing | — |
-| **Working Context** | Missing | Session finish `Note` only |
-| **Context Snapshot** | Missing | — |
-| **Active / Waiting Task** | Partial | Paused sessions ≈ waiting work, but session-centric |
-| **Task Switching** | Partial | `SessionService.SwitchTo()` + Waiting UI |
-| **Resume Queue** | Partial | Waiting panel; no ordering, no context, not task-centric |
-| **Stopwatch Session** | Complete | — |
-| **Countdown Session** | Complete | Presets 5/15/25/45/60 + custom |
-| **Active Duration** | Complete | `WorkInterval`-based |
-| **Session History** | Complete | History window |
-| **Focus Time** | Partial | Daily total only (`GetTodaysTotal`) |
-| **Daily Productivity** | Partial | Main window + history header |
-| **Heatmap / Streak / Momentum / Switch Metrics** | Missing | — |
-
-## 1.7 Test Coverage
-
-- `SessionServiceTests.cs` — session lifecycle, parallel sessions, switch, recovery, totals
-- `IdleAutoPauseControllerTests.cs` — idle behavior
-
-No tests for UI or any V2 domain.
+| **R-00** | Mark old plan superseded (this document). Add `// DOMAIN-REALIGNMENT` comments on files slated for removal. No code behavior changes. | Team/agents reference DOMAIN.md + this plan only |
 
 ---
 
-# 2. Gap Analysis
+## Wave 1: Task Lifecycle Realignment
 
-## 2.1 Domain Model Gaps
+**Goal:** Replace task status model with DOMAIN.md six-state lifecycle. Establish single Running task invariant.
 
-| DOMAIN.md Entity | Gap |
-|---|---|
-| **Project** | No entity, store, service, or UI |
-| **Milestone** | No entity; no progress derivation |
-| **Task** | No first-class entity; `TaskName` is ephemeral per session |
-| **Subtask** | No entity |
-| **ContextSnapshot** | No entity or capture workflow |
-| **WorkSession → Task** | Sessions not linked to tasks |
+| Slice | Scope | DB | Backend | UI | Tests |
+|---|---|---|---|---|---|
+| **R-01** | New `TaskStatus` enum values; add `Origin`, `CompletedAt` columns; migration 008 with status remap; `StartTask` with switching behavior (`leavingStatus` param, default `Ready`) | `ALTER Task` add columns; remap Status integers | Update `TaskStatusRules`; `TaskService.ChangeStatus`, `TaskService.StartTask` (BR-1/BR-2 + switching), `TaskService.CompleteTask`; remove milestone references | Status picker shows 6 states; Inbox filter on Tasks view | Rewrite `TaskServiceTests` for lifecycle + single Running + switching |
+| **R-02** | Default capture to Inbox; Planned/Unplanned origin; **`CaptureToInbox`** API (BR-11) | None (columns from R-01) | `TaskService.CaptureToInbox(title)` — creates Inbox task, does not change Running task; `Create` defaults: `Inbox`, `Unplanned` | Origin badge on task list; optional filter | Tests: capture does not disturb Running task |
+| **R-02b** | Quick Capture UX | None | Wire `CaptureToInbox` to shell | Global hotkey; keyboard-first capture from any view; one-click Inbox add on Focus/Tasks; minimal dialog (title only) | Manual: capture while Running task stays Running |
 
-## 2.2 Process Gaps (DOMAIN.md §5)
+**Wave 1 outcome:** Tasks use correct lifecycle. Only one Running task. Quick Capture works without breaking focus.
 
-| Process | Gap |
-|---|---|
-| **Capture Work** | Can start a session with a name; cannot create/manage tasks independently |
-| **Plan Work** | No project/milestone/subtask planning |
-| **Execute Work** | Session execution works; not task-aware |
-| **Pause Work** | Pause works; no context snapshot |
-| **Switch Work** | Session switch works; no context preservation or resume queue update |
-| **Resume Work** | Can switch to paused session; no context display, no task/project/search entry |
-| **Complete Work** | Session finish works; no task Done state or milestone progress |
-| **Review Productivity** | Daily total only; no heatmap, streak, momentum, switch metrics |
-
-## 2.3 Infrastructure Gaps
-
-1. **No schema versioning** — `CREATE TABLE IF NOT EXISTS` cannot evolve safely
-2. **No task/project service layer** — everything is session-centric
-3. **No navigation shell** — single main window + modals cannot scale to V2 screens
-4. **No analytics aggregation** — only raw daily session queries
-5. **No search** — required for Process 6 resume entry point
-
-## 2.4 What Can Be Reused (Foundation Assets)
-
-- `SessionService` engine (intervals, pause, countdown, recovery)
-- `ISessionStore` / `InMemorySessionStore` test pattern
-- MVVM infrastructure, themes, tray, idle auto-pause
-- History editing patterns
-- Existing keyboard shortcuts and compact mode
+**Dependencies:** None beyond current codebase.
 
 ---
 
-# 3. Domain Mapping
+## Wave 1b: Quick Capture UX (can overlap Wave 2)
 
-## 3.1 V1 → V2 Concept Mapping
+**Goal:** Make Quick Capture a visible, first-class workflow.
 
-| V1 Concept | V2 Mapping | Action |
+| Slice | Scope | Acceptance |
 |---|---|---|
-| `WorkSession.TaskName` | `Task.Title` | Migrate to FK; keep denormalized cache optional |
-| Session `Note` | Session note (unchanged) + Task `Notes` / Context | Separate concerns |
-| Waiting sessions panel | Resume Queue (subset) | Evolve to task-centric ordered queue |
-| `SessionService.SwitchTo()` | Process 5 — Switch Work | Extend with context snapshot |
-| `GetTodaysTotal()` | Focus Time / Daily Productivity | Extend aggregation layer |
-| History window | Session History (unchanged) + analytics views | Keep; add dashboard |
-| Start panel (task name textbox) | Quick Task capture | Replace with task picker/create |
-| `SessionState` | Session lifecycle (unchanged) | Distinct from `TaskStatus` |
-| — | `TaskStatus`: Active, Blocked, Done, Cancelled | New enum |
+| **R-02b** | (see Wave 1 above) | User can capture to Inbox via hotkey from any view without losing Running task |
 
-## 3.2 V2 Entity Relationship (Target)
-
-```mermaid
-erDiagram
-    Project ||--o{ Milestone : contains
-    Project ||--o{ Task : contains
-    Milestone ||--o{ Task : assigns
-    Task ||--o{ Subtask : contains
-    Task ||--o{ ContextSnapshot : preserves
-    Task ||--o{ WorkSession : tracks
-    WorkSession ||--o{ WorkInterval : segments
-    Task ||--o| ResumeQueueEntry : ordered
-```
-
-## 3.3 Resume Queue Design Decision
-
-DOMAIN.md defines Resume Queue as an **ordered list of active tasks ready for continuation**.
-
-**Recommendation:** Derive queue from task state + session state rather than a separate mutable queue table initially:
-
-- Include tasks with `Status = Active` that have a paused in-progress session OR were recently worked on
-- Order by `LastWorkedAt DESC` (maintained on session pause/switch)
-- Optional `ResumeQueueEntry` table in a later slice if manual reordering is needed
-
-This satisfies DOMAIN.md without over-engineering; manual reorder can be a follow-up slice if needed.
-
-## 3.4 Context Model Design Decision
-
-DOMAIN.md distinguishes:
-
-- **Working Context** (live fields on Task): Current Status, Last Progress, Next Action, Blocker, Notes
-- **Context Snapshot** (point-in-time history on pause/switch/complete)
-
-**Recommendation:** Store live context on `Task`; append `ContextSnapshot` rows on pause/switch/session finish. Latest snapshot mirrors task context at capture time.
+*Note: R-02b is listed in Wave 1 for dependency clarity; may ship alongside Wave 2 removals.*
 
 ---
 
-# 4. Implementation Strategy
+## Wave 2: Remove Conflicting Features (Backend)
 
-## 4.1 Architectural Approach
+**Goal:** Delete domain concepts that conflict with DOMAIN.md before building replacements.
 
-**Vertical Slice Architecture** — each slice owns:
-
-```
-Slice/
-├── Persistence/   (migration + store methods)
-├── Models/        (domain types)
-├── Services/      (business logic)
-├── ViewModels/    (presentation logic)
-├── Views/         (XAML)
-└── Tests/         (service-level tests)
-```
-
-Slices are independently reviewable and mergeable. Shared infrastructure (migration runner, navigation shell) is extracted only when a second slice needs it.
-
-## 4.2 Guiding Principles (from DOMAIN.md)
-
-- **Minimal friction** — quick task creation in seconds; preserve keyboard-first flows
-- **Task first** — task is the primary navigation unit
-- **Project optional** — nullable `ProjectId` on Task
-- **Context preservation** — snapshot on pause/switch
-- **Single user** — no auth, roles, or multi-tenancy
-- **Scope discipline** — exclude all V3+ capabilities listed in DOMAIN.md §6
-
-## 4.3 Migration Strategy
-
-Replace bare `SchemaInitializer` with a **versioned migration runner**:
-
-1. Add `SchemaVersion` table
-2. Numbered migration classes (`Migration001_...`, etc.)
-3. Run pending migrations on startup
-4. **Migration V2-001:** Add `Task`, `Project`, etc.
-5. **Migration V2-00N:** Add `TaskId` to `WorkSession`; backfill existing sessions as standalone quick tasks
-
-Backfill rule: each distinct historical `TaskName` → one `Task` (Active or Done based on session state); link sessions via `TaskId`.
-
-## 4.4 UI Navigation Strategy
-
-Introduce a lightweight **navigation shell** early (Slice S-01):
-
-- Main areas: **Focus** (current timer), **Tasks**, **Projects**, **Analytics**
-- Focus view retains current main-window timer UX
-- Other areas open as panels or secondary windows initially (minimize risk)
-- Preserve tray, compact mode, always-on-top on Focus view
-
-## 4.5 Session Integration Strategy
-
-Phase session integration **after** task foundation:
-
-1. Tasks exist independently
-2. Sessions gain `TaskId` FK
-3. Start/resume flows select or create a Task first
-4. Context capture hooks into existing pause/switch/finish in `SessionService`
-
-Do **not** rewrite `SessionService` from scratch — extend via composition or orchestration layer (`WorkExecutionService`) to avoid regressions.
-
----
-
-# 5. Detailed Slice Plan
-
----
-
-## Slice S-00: Schema Migration Infrastructure
-
-| Field | Detail |
-|---|---|
-| **Goal** | Safe, versioned schema evolution for V2 |
-| **Scope** | Migration runner, `SchemaVersion` table, refactor `SchemaInitializer` to run migrations; no domain changes |
-| **Dependencies** | None |
-| **Database Changes** | `SchemaVersion (Version INTEGER PRIMARY KEY, AppliedAt TEXT)` |
-| **Backend Changes** | `IMigration`, `MigrationRunner`, move existing DDL to `Migration001_InitialSchema` |
-| **UI Changes** | None |
-| **Acceptance Criteria** | Fresh install creates v1 schema; existing DB migrates without data loss; tests verify idempotent runs |
-
----
-
-## Slice S-01: Task Foundation — Quick Tasks
-
-| Field | Detail |
-|---|---|
-| **Goal** | First-class Task entity with quick-task CRUD |
-| **Scope** | Task model, store, service, minimal task list UI; no projects yet |
-| **Dependencies** | S-00 |
-| **Database Changes** | `Task (Id, Title, Status, Notes, CurrentStatus, LastProgress, NextAction, Blocker, ProjectId NULL, MilestoneId NULL, CreatedAt, UpdatedAt, LastWorkedAt NULL)` |
-| **Backend Changes** | `ITaskStore`, `TaskStore`, `TaskService` (Create, Get, List, Update, Delete, Search); `TaskStatus` enum |
-| **UI Changes** | Task list panel/window; quick-add task input; task detail view (title, status, notes) |
-| **Acceptance Criteria** | User can create/edit/delete tasks without a project; tasks persist across restarts; search by title works |
-
----
-
-## Slice S-02: Project Management
-
-| Field | Detail |
-|---|---|
-| **Goal** | Create and manage projects with optional deadlines |
-| **Scope** | Project CRUD; associate existing tasks to projects |
-| **Dependencies** | S-01 |
-| **Database Changes** | `Project (Id, Name, Deadline NULL, CreatedAt, UpdatedAt)`; `Task.ProjectId` FK |
-| **Backend Changes** | `IProjectStore`, `ProjectStore`, `ProjectService`; extend `TaskService` to assign/unassign project |
-| **UI Changes** | Project list; project detail with task list; optional deadline picker; filter tasks by project |
-| **Acceptance Criteria** | User can create projects with optional deadline; assign tasks to projects; tasks can exist without project; project list shows task counts |
-
----
-
-## Slice S-03: Milestone Management
-
-| Field | Detail |
-|---|---|
-| **Goal** | Milestones within projects with derived progress |
-| **Scope** | Milestone CRUD; assign tasks to milestones; compute progress |
-| **Dependencies** | S-02 |
-| **Database Changes** | `Milestone (Id, ProjectId, Name, SortOrder, CreatedAt)`; `Task.MilestoneId` FK |
-| **Backend Changes** | `IMilestoneStore`, `MilestoneService`; `GetProgress(milestoneId)` = Done tasks / total assigned tasks |
-| **UI Changes** | Milestone list on project detail; progress indicator per milestone; assign task to milestone |
-| **Acceptance Criteria** | User can create/reorder milestones; assign tasks; progress updates when tasks marked Done; unassigned project tasks still supported |
-
----
-
-## Slice S-04: Subtask Management
-
-| Field | Detail |
-|---|---|
-| **Goal** | Break tasks into subtasks |
-| **Scope** | Subtask CRUD under a parent task |
-| **Dependencies** | S-01 |
-| **Database Changes** | `Subtask (Id, TaskId, Title, Status, SortOrder, CreatedAt)` |
-| **Backend Changes** | `ISubtaskStore`, `SubtaskService`; subtask completion does not auto-complete parent (user marks task Done explicitly) |
-| **UI Changes** | Subtask checklist on task detail; add/reorder/complete subtasks |
-| **Acceptance Criteria** | User can add subtasks to any task; mark subtasks done independently; subtask list persists |
-
----
-
-## Slice S-05: Task Lifecycle
-
-| Field | Detail |
-|---|---|
-| **Goal** | Full task status lifecycle per DOMAIN.md |
-| **Scope** | Active, Blocked, Done, Cancelled states with transitions |
-| **Dependencies** | S-01 |
-| **Database Changes** | None (Status column exists from S-01) |
-| **Backend Changes** | `TaskService` transition rules; Done/Cancelled tasks excluded from resume queue; reopen allowed |
-| **UI Changes** | Status picker on task detail; visual badges on task list; filter by status |
-| **Acceptance Criteria** | All four statuses work; Done tasks excluded from active work flows; marking Done triggers milestone progress recalculation (S-03) |
-
----
-
-## Slice S-06: Navigation Shell
-
-| Field | Detail |
-|---|---|
-| **Goal** | Scalable UI structure for V2 screens |
-| **Scope** | Shell with Focus / Tasks / Projects / Analytics navigation; preserve existing timer as Focus |
-| **Dependencies** | S-01 |
-| **Database Changes** | None |
-| **Backend Changes** | Navigation service or simple view-model router |
-| **UI Changes** | Refactor `MainWindow` into shell; extract current timer UI to `FocusView`; add nav tabs or sidebar |
-| **Acceptance Criteria** | User can navigate between Focus and Tasks without losing active session; compact mode and tray still work |
-
----
-
-## Slice S-07: Working Context on Task
-
-| Field | Detail |
-|---|---|
-| **Goal** | Live working context fields editable on any task |
-| **Scope** | Current Status, Last Progress, Next Action, Blocker, Notes (task-level context) |
-| **Dependencies** | S-01, S-06 |
-| **Database Changes** | Columns already on Task from S-01 |
-| **Backend Changes** | `TaskService.UpdateContext(...)` |
-| **UI Changes** | Context panel on task detail; compact context summary on task list items |
-| **Acceptance Criteria** | User can view/edit all five context fields; changes persist; empty fields allowed |
-
----
-
-## Slice S-08: Context Snapshots
-
-| Field | Detail |
-|---|---|
-| **Goal** | Point-in-time context capture and history |
-| **Scope** | Snapshot entity; manual capture; view history |
-| **Dependencies** | S-07 |
-| **Database Changes** | `ContextSnapshot (Id, TaskId, CreatedAt, CurrentStatus, LastProgress, NextAction, Blocker, Notes)` |
-| **Backend Changes** | `IContextSnapshotStore`, `ContextSnapshotService` (Capture, ListByTask, GetLatest) |
-| **UI Changes** | "Capture snapshot" button; snapshot history list on task detail; latest snapshot summary |
-| **Acceptance Criteria** | User can manually capture snapshot; view snapshot history; latest snapshot retrievable |
-
----
-
-## Slice S-09: Link WorkSession to Task
-
-| Field | Detail |
-|---|---|
-| **Goal** | Sessions belong to tasks, not free-text names |
-| **Scope** | FK migration, backfill, update session start flow |
-| **Dependencies** | S-01, S-00 |
-| **Database Changes** | `WorkSession.TaskId TEXT NOT NULL` FK; keep `TaskName` as denormalized cache during transition; migration backfills from historical data |
-| **Backend Changes** | Extend `SessionService.Start(taskId, ...)` ; update `SessionStore`; deprecate string-only start |
-| **UI Changes** | Start session selects existing task or creates quick task; display task title from FK |
-| **Acceptance Criteria** | New sessions require a task; historical sessions backfilled; session history shows linked task; existing session tests pass with task FK |
-
----
-
-## Slice S-10: Task-Centric Session Execution
-
-| Field | Detail |
-|---|---|
-| **Goal** | Start/resume work from task views |
-| **Scope** | "Start work" from task detail; session reflects task context |
-| **Dependencies** | S-09, S-07, S-06 |
-| **Database Changes** | None |
-| **Backend Changes** | `WorkExecutionService` orchestrates task selection + session start; update `LastWorkedAt` on task |
-| **UI Changes** | Start/Resume buttons on task detail and task list; Focus view shows active task context panel |
-| **Acceptance Criteria** | User starts session from task list/detail; Focus view shows task title and context; today's total still accurate |
-
----
-
-## Slice S-11: Context Capture on Pause/Switch/Finish
-
-| Field | Detail |
-|---|---|
-| **Goal** | Automatic context preservation during work flows (Processes 4 & 5) |
-| **Scope** | Snapshot on pause, switch, and session finish; optional quick-edit dialog |
-| **Dependencies** | S-08, S-10 |
-| **Database Changes** | None |
-| **Backend Changes** | Hook into `SessionService.Pause()`, `SwitchTo()`, `Finish()`; update task working context from snapshot input; auto-capture snapshot |
-| **UI Changes** | Lightweight context capture dialog on pause/switch (pre-filled, editable, skippable for minimal friction) |
-| **Acceptance Criteria** | Pausing prompts context update (skippable); switching tasks preserves prior task context; finishing updates Last Progress; snapshots created automatically |
-
----
-
-## Slice S-12: Resume Queue
-
-| Field | Detail |
-|---|---|
-| **Goal** | Ordered list of active tasks ready for continuation |
-| **Scope** | Task-centric resume queue replacing session-only Waiting panel |
-| **Dependencies** | S-10, S-07, S-05 |
-| **Database Changes** | None initially (derive from `Task.LastWorkedAt` + Active status + paused session existence); optional `ResumeQueueOrder` column on Task if manual reorder needed |
-| **Backend Changes** | `ResumeQueueService.GetOrderedTasks()`; update order on pause/switch; exclude Done/Cancelled |
-| **UI Changes** | Resume Queue panel on Focus view (replaces/enhances Waiting panel); shows context summary (Next Action, Blocker); click to resume |
-| **Acceptance Criteria** | Queue shows active waiting tasks in recency order; each entry shows next action; selecting task resumes session or starts new one; matches Process 6 entry via queue |
-
----
-
-## Slice S-13: Resume from Project View and Search
-
-| Field | Detail |
-|---|---|
-| **Goal** | Complete Process 6 entry points |
-| **Scope** | Resume from project task list and global search |
-| **Dependencies** | S-12, S-02, S-06 |
-| **Database Changes** | None |
-| **Backend Changes** | Extend search to include context fields; `GetTaskWithContext(id)` |
-| **UI Changes** | Resume action on project task rows; global search box in shell; search results show context summary |
-| **Acceptance Criteria** | User resumes from project view, search, and queue; all show Current Status, Last Progress, Next Action, Blockers |
-
----
-
-## Slice S-14: Focus Time and Daily Productivity
-
-| Field | Detail |
-|---|---|
-| **Goal** | Enhanced focus time tracking and daily summaries |
-| **Scope** | Aggregate session data into daily productivity metrics |
-| **Dependencies** | S-09 |
-| **Database Changes** | None (query-only) |
-| **Backend Changes** | `AnalyticsService.GetDailySummary(date)`, `GetFocusTime(range)`, `GetFocusTimeByTask(taskId)` |
-| **UI Changes** | Daily summary on Analytics view; per-task focus time on task detail; enhance existing today total |
-| **Acceptance Criteria** | Daily focus time matches sum of completed session active durations; per-task breakdown available; existing daily total unchanged in behavior |
-
----
-
-## Slice S-15: Activity Heatmap
-
-| Field | Detail |
-|---|---|
-| **Goal** | Visual activity over time |
-| **Scope** | Calendar heatmap of daily focus minutes |
-| **Dependencies** | S-14 |
-| **Database Changes** | None |
-| **Backend Changes** | `AnalyticsService.GetActivityHeatmap(startDate, endDate)` |
-| **UI Changes** | Heatmap grid on Analytics view (GitHub-style); tooltip with daily minutes |
-| **Acceptance Criteria** | Heatmap renders last 12 weeks; color intensity reflects focus time; empty days shown correctly |
-
----
-
-## Slice S-16: Productivity Streak
-
-| Field | Detail |
-|---|---|
-| **Goal** | Consecutive productive days tracking |
-| **Scope** | Current streak and longest streak |
-| **Dependencies** | S-14 |
-| **Database Changes** | None |
-| **Backend Changes** | `AnalyticsService.GetStreak()` — day counts as productive if focus time > 0 |
-| **UI Changes** | Streak badge on Analytics view and optionally Focus view |
-| **Acceptance Criteria** | Streak counts consecutive days with any focus time; breaks on zero-day gap; displays current and best streak |
-
----
-
-## Slice S-17: Project Momentum
-
-| Field | Detail |
-|---|---|
-| **Goal** | Activity and completion trends per project |
-| **Scope** | Focus time trend + task completion rate per project |
-| **Dependencies** | S-14, S-02 |
-| **Database Changes** | None |
-| **Backend Changes** | `AnalyticsService.GetProjectMomentum(projectId, range)` |
-| **UI Changes** | Momentum section on project detail and Analytics view |
-| **Acceptance Criteria** | Shows weekly focus time trend and tasks completed vs created for a project |
-
----
-
-## Slice S-18: Context Switch Metrics
-
-| Field | Detail |
-|---|---|
-| **Goal** | Task switching behavior statistics |
-| **Scope** | Switch count and frequency |
-| **Dependencies** | S-11, S-14 |
-| **Database Changes** | `TaskSwitchEvent (Id, FromTaskId NULL, ToTaskId, OccurredAt)` — recorded on `SwitchTo` |
-| **Backend Changes** | `AnalyticsService.GetSwitchMetrics(range)` — count, avg per day, busiest hour |
-| **UI Changes** | Switch metrics section on Analytics view |
-| **Acceptance Criteria** | Each task switch recorded; metrics show daily/weekly switch counts; no V3 scoring (no Reload Score) |
-
----
-
-## Slice S-19: V1 Data Migration and Polish
-
-| Field | Detail |
-|---|---|
-| **Goal** | Clean upgrade path for existing V1 users |
-| **Scope** | Backfill verification, deprecation cleanup, README update |
-| **Dependencies** | All prior slices |
-| **Database Changes** | Drop `WorkSession.TaskName` column (optional, after verification) |
-| **Backend Changes** | Remove deprecated string-only APIs; migration validation |
-| **UI Changes** | First-run V2 welcome hint; updated shortcuts help |
-| **Acceptance Criteria** | V1 database upgrades seamlessly; no session data lost; `TaskName` backfill verified; README reflects V2 |
-
----
-
-# 6. Delivery Waves
-
-## Wave 1: Foundation
-
-**Slices:** S-00, S-01, S-06
-
-**Outcome:** Migration infrastructure, first-class tasks, navigation shell. Users can manage quick tasks.
-
-**Risk level:** Low — additive schema, no session changes yet.
-
----
-
-## Wave 2: Work Planning
-
-**Slices:** S-02, S-03, S-04, S-05
-
-**Outcome:** Full project/milestone/subtask planning and task lifecycle. DOMAIN.md Processes 1–2 complete.
-
-**Risk level:** Low–Medium — more CRUD surfaces, but isolated from session engine.
-
-**Parallelization:** S-04 and S-05 can run parallel to S-02/S-03 after S-01.
-
----
-
-## Wave 3: Context Management
-
-**Slices:** S-07, S-08
-
-**Outcome:** Working context and snapshot history on tasks. DOMAIN.md §3.3 complete (minus automatic capture).
-
-**Risk level:** Low — additive, no session coupling yet.
-
----
-
-## Wave 4: Execution Integration
-
-**Slices:** S-09, S-10, S-11, S-12, S-13
-
-**Outcome:** Tasks and sessions unified; context preserved on pause/switch; resume queue with all entry points. DOMAIN.md Processes 3–6 complete.
-
-**Risk level:** **High** — touches `SessionService`; requires thorough regression testing.
-
-**Critical path:** S-09 → S-10 → S-12 → S-13; S-11 depends on S-08 + S-10.
-
----
-
-## Wave 5: Productivity Analytics
-
-**Slices:** S-14, S-15, S-16, S-17, S-18
-
-**Outcome:** Full analytics dashboard. DOMAIN.md §3.6 and Process 8 complete.
-
-**Risk level:** Low–Medium — mostly read-only aggregation; S-18 adds event recording.
-
-**Parallelization:** S-15, S-16, S-17 can run in parallel after S-14.
-
----
-
-## Wave 6: Migration and Polish
-
-**Slices:** S-19
-
-**Outcome:** Production-ready V2 upgrade for existing V1 users.
-
-**Risk level:** Medium — data migration validation.
-
----
-
-## Wave Timeline (Reference)
-
-```mermaid
-gantt
-    title Jetset V2 Delivery Waves
-    dateFormat YYYY-MM-DD
-    section Wave1
-    S-00 Migration Infra           :w1a, 2026-01-01, 3d
-    S-01 Task Foundation           :w1b, after w1a, 5d
-    S-06 Navigation Shell          :w1c, after w1b, 4d
-    section Wave2
-    S-02 Projects                  :w2a, after w1c, 4d
-    S-03 Milestones                :w2b, after w2a, 4d
-    S-04 Subtasks                  :w2c, after w1c, 3d
-    S-05 Task Lifecycle            :w2d, after w1b, 3d
-    section Wave3
-    S-07 Working Context           :w3a, after w1c, 3d
-    S-08 Context Snapshots         :w3b, after w3a, 3d
-    section Wave4
-    S-09 Link Session to Task      :w4a, after w1b, 4d
-    S-10 Task Session Execution    :w4b, after w4a, 4d
-    S-11 Context on Pause/Switch   :w4c, after w3b, 4d
-    S-12 Resume Queue              :w4d, after w4b, 3d
-    S-13 Resume Entry Points       :w4e, after w4d, 3d
-    section Wave5
-    S-14 Focus Time Daily          :w5a, after w4a, 3d
-    S-15 Heatmap                   :w5b, after w5a, 3d
-    S-16 Streak                    :w5c, after w5a, 2d
-    S-17 Project Momentum          :w5d, after w5a, 3d
-    S-18 Switch Metrics            :w5e, after w4c, 3d
-    section Wave6
-    S-19 V1 Migration Polish       :w6a, after w5e, 3d
-```
-
----
-
-# 7. Risk Assessment
-
-| Risk | Severity | Likelihood | Mitigation |
+| Slice | Scope | Remove | Keep |
 |---|---|---|---|
-| **SessionService regression** when linking tasks | High | Medium | S-09 as isolated slice; keep `InMemorySessionStore` tests; add orchestration layer rather than rewriting core; run full test suite each slice |
-| **Schema migration failure** on existing user DBs | High | Low | S-00 first; test against copy of real V1 DB; backup DB before migration; idempotent migrations |
-| **V1 backfill data quality** (duplicate task names) | Medium | High | Merge sessions with same `TaskName` into one Task; document behavior; allow user merge later |
-| **UI scope creep** | Medium | Medium | Strict DOMAIN.md scope gate; defer manual queue reorder, task merge, bulk ops |
-| **Context capture friction** violates Minimal Friction principle | Medium | Medium | Skippable dialog; sensible defaults from last context; keyboard shortcut to dismiss |
-| **Navigation shell refactor breaks tray/compact mode** | Medium | Medium | S-06 early with Focus view preserving all current behavior; test compact + tray explicitly |
-| **Analytics performance** on large session history | Low | Low | Index `WorkSession.TaskId`, `FinishedAt`; aggregate in SQL not in-memory |
-| **Parallel slice merge conflicts** | Low | Medium | Wave 2 slices touch different files; coordinate S-09 carefully as integration point |
-| **Scope creep into V3+ features** | Medium | Low | Explicit exclusion list in every PR review; no Reload Score, Stale Detection, AI |
-| **WPF heatmap complexity** | Low | Medium | Simple Rectangle grid first; no chart library dependency unless needed |
+| **R-03** | Remove milestones | `MilestoneService`, `IMilestoneStore`, `MilestoneStore`, `InMemoryMilestoneStore`, `Milestone` model, `MilestoneProgress`, `MilestoneListItemViewModel`, milestone UI, `MilestoneServiceTests`, `Task.MilestoneId` usage | Project and task assignment |
+| **R-04** | Remove context snapshots + task context | `ContextSnapshotService`, stores, model, `WorkingContext`, task context columns usage, `ContextCaptureDialog`, `ContextCaptureViewModel`, `PreserveContext` in `WorkExecutionService`, snapshot UI, related tests | `Task.Notes` (optional simple notes) |
+| **R-05** | Remove resume queue + switch metrics | `ResumeQueueService`, `ResumeQueueEntry`, `ResumeQueueItemViewModel`, `TaskSwitchEvent` store/model, switch recording in `SessionService`, `ResumeQueueServiceTests` | Session engine pause/switch mechanics |
+
+**Wave 2 outcome:** Codebase no longer contains removed DOMAIN.md concepts. Focus view resume queue panel is stubbed/empty until Wave 4.
+
+**Note:** R-03 through R-05 can partially overlap if merge conflicts are managed. R-04 depends on R-03 completing milestone decoupling in `TaskService`.
+
+---
+
+## Wave 3: Project ContextText
+
+**Goal:** Implement context preservation — simple free-form note on project, independent of task lifecycle.
+
+| Slice | Scope | DB | Backend | UI | Tests |
+|---|---|---|---|---|---|
+| **R-06** | `ContextText` on Project | Migration 009: add `ContextText`, `ContextUpdatedAt` to `Project`; migration 010: concatenate task context → `ContextText`; drop task context columns | `ProjectService.GetContextText`, `UpdateContextText` | Project detail: single always-editable text area | Context CRUD tests |
+| **R-07** | Context on execute | None | `FocusViewModel` loads `ContextText` when Running task has ProjectId | Focus view: read-only `ContextText` display (link to edit on project) | Integration test: start task → context displayed |
+
+**Wave 3 outcome:** Context preservation works per DOMAIN.md. No structured fields. No lifecycle-triggered capture.
+
+---
+
+## Wave 4: Execution Alignment
+
+**Goal:** Unify task Running status with session state. Task switching with explicit Ready/Waiting behavior.
+
+| Slice | Scope | Backend | UI | Tests |
+|---|---|---|---|---|
+| **R-08** | Refactor `WorkExecutionService` | All start/pause/finish/switch flows through `TaskService.StartTask` / `StopTask`; `leavingStatus` param (default Ready, explicit Waiting); session follows task; no context side effects | — | Rewrite `WorkExecutionServiceTests` incl. switching scenarios |
+| **R-09** | Focus view realignment | — | Remove resume queue panel; add Ready/Waiting task list; single Running indicator; **Quick Capture** input; "Switch and mark waiting" action; remove task context panel | Manual + VM tests |
+| **R-10** | Tasks view realignment | — | Remove snapshot history, task context fields, milestone picker; add Inbox/Ready/Waiting/Done filters; start work button uses `StartTask` | — |
+| **R-11** | Projects view realignment | — | Remove milestones section and momentum chart; task list + `ContextText` editor is primary content | — |
+| **R-12** | Search realignment | `TaskService.Search` includes `ContextText` | Search results show task status + project name | Search tests |
+
+**Wave 4 outcome:** Full execution workflow matches DOMAIN.md Processes 1–7.
+
+---
+
+## Wave 5: Analytics Simplification
+
+**Goal:** Keep personal productivity metrics; remove management-style reporting.
+
+| Slice | Scope | Remove | Keep |
+|---|---|---|---|
+| **R-13** | Simplify `AnalyticsService` | `GetProjectMomentum`, `GetSwitchMetrics`, `TaskSwitchEvent` dependencies | `GetDailySummary`, `GetFocusTime`, `GetActivityHeatmap`, `GetStreak`, `GetFocusTimeByTask` |
+| **R-14** | Simplify Analytics UI | Momentum section, switch metrics section, per-project momentum chart | Streak badge, heatmap, daily focus, per-task breakdown |
+| **R-15** | Simplify Projects UI analytics | Project momentum chart on project detail (if not removed in R-11) | — |
+
+**Wave 5 outcome:** Analytics matches DOMAIN.md §7.2.
+
+---
+
+## Wave 6: Schema Cleanup and Polish
+
+**Goal:** Drop deprecated schema, update docs, verify V1 upgrade path.
+
+| Slice | Scope | Acceptance |
+|---|---|---|
+| **R-16** | Schema cleanup migration 011 | Drop `Milestone`, `ContextSnapshot`, `TaskSwitchEvent` tables; drop `Task.MilestoneId`, task context columns; validation passes |
+| **R-17** | Remove dead code | No references to removed types; `AppServices` wiring cleaned; all tests pass |
+| **R-18** | Update README + V2Welcome | Docs describe Personal Execution Workspace, not project management |
+| **R-19** | Migration validation | Test upgrade from V1 DB → current; test upgrade from draft V2 (001–007) → aligned schema; verify session data intact |
+
+**Wave 6 outcome:** Production-ready aligned V2.
+
+---
+
+## Wave Summary
+
+| Wave | Slices | User-visible outcome | Risk |
+|---|---|---|---|
+| 0 | R-00 | None (planning) | None |
+| 1 | R-01, R-02, R-02b | Correct task states, single Running, Quick Capture | Medium — status migration |
+| 2 | R-03, R-04, R-05 | Features disappear (milestones, snapshots, queue) | Low — removal |
+| 3 | R-06, R-07 | Project `ContextText` editing and display | Low — simple model |
+| 4 | R-08–R-12 | Execution workspace workflow + task switching | **High** — session integration |
+| 5 | R-13–R-15 | Simpler analytics | Low |
+| 6 | R-16–R-19 | Clean schema, updated docs | Medium — data migration |
+
+---
 
 ## Critical Path
 
 ```
-S-00 → S-01 → S-09 → S-10 → S-11 → S-12 → S-13 → S-19
+R-01 → R-02 → R-02b → R-04 → R-06 → R-08 → R-09 → R-16 → R-19
+              ↓
+             R-03 → R-05
 ```
 
-Task foundation and session integration are the bottleneck. Analytics can begin query work after S-09 (Wave 5 partially parallelizable with Wave 4 tail).
-
-## Success Validation (DOMAIN.md §7)
-
-| # | Success Criterion | Validating Slices |
-|---|---|---|
-| 1 | Manage projects and tasks with minimal friction | S-01, S-02, S-03, S-04, S-05 |
-| 2 | Quick tasks without project setup | S-01 |
-| 3 | Preserve context during switching | S-07, S-08, S-11 |
-| 4 | Resume quickly after interruptions | S-12, S-13 |
-| 5 | Track focused time against tasks | S-09, S-10, S-14 |
-| 6 | Visualize productivity trends | S-14, S-15, S-16, S-17, S-18 |
-| 7 | Multiple parallel projects without losing momentum | S-02, S-12, S-17 |
+Task lifecycle (R-01), Quick Capture (R-02/R-02b), and execution alignment (R-08) are the highest-risk integration points. Project `ContextText` (R-06) is low complexity once task context is removed (R-04).
 
 ---
 
 ## Recommended First Sprint
 
-Start with **Wave 1** (S-00 + S-01 + S-06) as a single reviewable milestone:
+**R-01 + R-02 + R-03** (can parallelize R-03 after R-01 starts)
 
-1. Migration infrastructure — unblocks all future schema work
-2. Task entity — establishes the V2 domain center
-3. Navigation shell — prevents MainWindow from becoming unmaintainable
+1. **R-01** — New task lifecycle + single Running task + switching behavior (establishes domain authority)
+2. **R-02** — `CaptureToInbox` API + Inbox defaults (first-class capture backend)
+3. **R-03** — Remove milestones (eliminates biggest project-management artifact)
 
-This delivers visible progress (task management) without touching the session engine, minimizing regression risk in the first sprint.
+Follow with **R-02b** (Quick Capture UX) and **R-05** (remove queue/switch metrics) in the next sprint.
+
+---
+
+# 10. Risks and Trade-offs
+
+## 10.1 Risk matrix
+
+| Risk | Severity | Likelihood | Mitigation |
+|---|---|---|---|
+| **Session regression** during R-08 execution alignment | High | Medium | Keep `SessionService` internals unchanged; only change orchestration in `WorkExecutionService`; run full `SessionServiceTests` every slice |
+| **Status migration data loss** (R-01 / M008) | High | Low | Explicit mapping table; pre-migration backup; validation: no task left with invalid status; at most one Running |
+| **Context data loss** on task→`ContextText` migration (R-06) | Medium | Medium | Best-effort concatenation from most recent task; backup before migration; user edits post-upgrade |
+| **Quick Capture hotkey conflicts** | Low | Medium | Configurable hotkey in Settings; default avoids common IDE shortcuts |
+| **Task switching confusion** (Ready vs Waiting) | Medium | Medium | Default to Ready; explicit "mark waiting" action; clear status badges |
+| **Removing features users may have adopted** | Medium | Medium | Draft V2 may not be widely deployed; changelog notes removals; backup protects snapshot/milestone data in DB file |
+| **Parallel paused sessions vs single Running task** | Medium | High | R-08 defines behavior: switching tasks pauses prior session; consider auto-completing stale paused sessions in R-19 |
+| **Large deletion diff** (R-03–R-05) | Low | High | Delete in dedicated slices; compile after each removal; avoid mixing with new features |
+| **UI scope creep** during realignment | Medium | Medium | DOMAIN.md §11.8 guardrails; no new features until alignment complete |
+| **Test suite churn** | Low | High | Expected; rewrite tests per slice, don't maintain tests for removed features |
+| **Enum integer remap breaks existing DBs** | High | Medium | Migration 008 remaps in SQL; never reuse old integer values for different meanings without migration |
+
+## 10.2 Trade-offs
+
+| Decision | Trade-off | Why accepted |
+|---|---|---|
+| Delete milestone/snapshot data | Irreversible without backup | DOMAIN.md explicitly removes these concepts; backup preserves raw DB |
+| Aggregate task context → `ContextText` | Imperfect merge into single text field | Better than losing all context; simpler than structured fields; user edits afterward |
+| Phase removal before adding `ContextText` | Temporary loss of context UI | Prevents building on wrong model; shortest path to correct architecture |
+| Session engine retained but demoted | Some legacy session patterns remain initially | Option B: retain proven engine, simplify incrementally in R-08/R-19 |
+| No resume queue | Less guided "what's next" | DOMAIN.md: user picks from Ready/Inbox/Search/Quick Capture — simpler, less PM-like |
+| Default switch → Ready, not Waiting | User must explicitly mark blocks | Avoids falsely marking interrupted work as blocked; matches decision #4 |
+
+## 10.3 What we are NOT doing
+
+- Rebuilding the session engine
+- Adding subtasks, milestones, goals, or coaching "because they were planned before"
+- Migrating context snapshots to project context history (no history in V2)
+- Supporting multiple Running tasks "for power users"
+- Building kanban boards, Gantt charts, or WIP limits
+- Automatic context capture "temporarily until project context is ready"
+
+## 10.4 Success validation (DOMAIN.md §10)
+
+| # | Success criterion | Validating slices |
+|---|---|---|
+| 1 | Capture a task in seconds without project — while Running | R-02, R-02b |
+| 2 | Organize tasks with optional project grouping | R-01, R-03, R-10, R-11 |
+| 3 | Execute exactly one task at a time | R-01, R-08, R-09 |
+| 4 | Switch tasks without losing project context | R-06, R-07, R-08 |
+| 5 | Edit project context independent of task ops | R-06 |
+| 6 | Resume project work via `ContextText` | R-06, R-07 |
+| 7 | Time tracking as secondary benefit | R-08 (session follows task) |
+| 8 | Simple personal analytics | R-13, R-14 |
 
 ---
 
@@ -728,6 +748,60 @@ This delivers visible progress (task management) without touching the session en
 
 | Document | Role |
 |---|---|
-| [DOMAIN.md](./DOMAIN.md) | Product domain specification (source of truth) |
-| [README.md](./README.md) | Current V1 project documentation |
-| **IMPLEMENTATION_PLAN.md** (this file) | V2 implementation plan artifact |
+| [DOMAIN.md](./DOMAIN.md) | Product domain specification (**source of truth**) |
+| [README.md](./README.md) | User-facing documentation (update in R-18) |
+| **IMPLEMENTATION_PLAN.md** (this file) | Realignment implementation plan |
+
+---
+
+## Appendix A: File Impact Map
+
+Quick reference for agents implementing slices.
+
+### Delete (Wave 2)
+
+```
+Models/Milestone.cs, MilestoneProgress.cs
+Models/ContextSnapshot.cs, WorkingContext.cs
+Models/ResumeQueueEntry.cs, TaskSwitchEvent.cs
+Services/MilestoneService.cs, ContextSnapshotService.cs, ResumeQueueService.cs
+Persistence/IMilestoneStore.cs, MilestoneStore.cs, InMemoryMilestoneStore.cs
+Persistence/IContextSnapshotStore.cs, ContextSnapshotStore.cs, InMemoryContextSnapshotStore.cs
+Persistence/ITaskSwitchEventStore.cs, TaskSwitchEventStore.cs, InMemoryTaskSwitchEventStore.cs
+Persistence/Migrations/Migration004_AddMilestoneTable.cs  (superseded by drop migration)
+Persistence/Migrations/Migration005_AddContextSnapshotTable.cs
+Persistence/Migrations/Migration007_AddTaskSwitchEventTable.cs
+ViewModels/MilestoneListItemViewModel.cs, ContextSnapshotItemViewModel.cs
+ViewModels/ResumeQueueItemViewModel.cs, ContextCaptureViewModel.cs
+ViewModels/ProjectMomentumViewModels.cs
+Views/ContextCaptureDialog.xaml(.cs)
+tests: MilestoneServiceTests, ContextSnapshotServiceTests,
+       ResumeQueueServiceTests, ContextCaptureViewModelTests
+```
+
+### Modify (Waves 1–5)
+
+```
+Models/TaskStatus.cs, TaskStatusRules.cs, WorkTask.cs
+Models/Project.cs (+ ContextText on Project, not separate entity)
+Services/TaskService.cs, ProjectService.cs, WorkExecutionService.cs
+Services/SessionService.cs (remove switch event recording)
+Services/AnalyticsService.cs, AppServices.cs
+ViewModels/FocusViewModel.cs, TasksViewModel.cs, ProjectsViewModel.cs
+ViewModels/AnalyticsViewModel.cs, GlobalSearchViewModel.cs, ShellViewModel.cs
+Views/FocusView.xaml, TasksView.xaml, ProjectsView.xaml, AnalyticsView.xaml
+Persistence/TaskStore.cs, ProjectStore.cs, ITaskStore.cs, IProjectStore.cs
+```
+
+### Add (Wave 3)
+
+```
+Persistence/Migrations/Migration008_TaskLifecycleRealignment.cs
+Persistence/Migrations/Migration009_AddProjectContextText.cs
+Persistence/Migrations/Migration010_DropMilestoneAndTaskContext.cs
+Persistence/Migrations/Migration011_DropSnapshotAndSwitchEvents.cs
+```
+
+---
+
+*End of Implementation Plan v2.1*

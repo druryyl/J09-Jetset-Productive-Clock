@@ -7,6 +7,7 @@ namespace Jetset.App.ViewModels;
 public sealed class ProjectListItemViewModel : ObservableObject
 {
     private string _name;
+    private string _contextText = string.Empty;
     private bool _hasDeadline;
     private DateTime? _deadlineDate;
     private int _taskCount;
@@ -20,6 +21,7 @@ public sealed class ProjectListItemViewModel : ObservableObject
     {
         Project = project;
         _name = project.Name;
+        _contextText = project.ContextText ?? string.Empty;
         _hasDeadline = project.Deadline is not null;
         _deadlineDate = project.Deadline?.ToDateTime(TimeOnly.MinValue);
         _taskCount = taskCount;
@@ -33,6 +35,12 @@ public sealed class ProjectListItemViewModel : ObservableObject
     {
         get => _name;
         set => SetProperty(ref _name, value);
+    }
+
+    public string ContextText
+    {
+        get => _contextText;
+        set => SetProperty(ref _contextText, value);
     }
 
     public bool HasDeadline

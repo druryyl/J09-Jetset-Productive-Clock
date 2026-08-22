@@ -9,8 +9,8 @@ public sealed class V2WelcomeViewModel
         UpgradedFromV1 = upgradedFromV1;
         Title = upgradedFromV1 ? "Welcome to Jetset V2" : "Welcome to Jetset";
         IntroText = upgradedFromV1
-            ? "Your existing work sessions were linked to tasks automatically. Nothing was lost."
-            : "Jetset is now a personal productivity workspace built around focused work sessions.";
+            ? "Your existing work sessions were linked to tasks automatically. Jetset is now a personal execution workspace — task-first, with one Running task at a time."
+            : "Jetset is a personal execution workspace. Capture tasks quickly, run one at a time, and keep project context across switches.";
     }
 
     public bool UpgradedFromV1 { get; }
@@ -21,17 +21,18 @@ public sealed class V2WelcomeViewModel
 
     public IReadOnlyList<string> Highlights { get; } =
     [
-        "Manage quick tasks, projects, and milestones from the navigation tabs.",
-        "Capture working context when pausing, switching, or finishing.",
-        "Resume paused work from the waiting queue on the Focus view.",
-        "Review focus time, activity heatmaps, and project momentum in Analytics."
+        "Quick Capture to Inbox without disturbing your Running task.",
+        "One Running task at a time — switch from Ready or mark the previous task as Waiting.",
+        "Project context lives on the project, not on individual tasks.",
+        "Review focus time, activity heatmaps, and streaks in Analytics."
     ];
 
     public IReadOnlyList<ShortcutItem> Shortcuts => DefaultShortcuts;
 
     public static IReadOnlyList<ShortcutItem> DefaultShortcuts { get; } =
     [
-        new("Ctrl+N", "Start a new work session"),
+        new("Ctrl+Shift+C", "Quick Capture to Inbox"),
+        new("Ctrl+N", "Start work on the selected task"),
         new("Ctrl+P", "Pause or resume the active session"),
         new("Ctrl+Enter", "Finish the active session"),
         new("Ctrl+M", "Toggle compact mode"),

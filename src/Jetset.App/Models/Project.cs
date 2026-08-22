@@ -8,6 +8,10 @@ public sealed class Project
 
     public DateOnly? Deadline { get; set; }
 
+    public string? ContextText { get; set; }
+
+    public DateTimeOffset? ContextUpdatedAt { get; set; }
+
     public DateTimeOffset CreatedAt { get; init; }
 
     public DateTimeOffset UpdatedAt { get; set; }

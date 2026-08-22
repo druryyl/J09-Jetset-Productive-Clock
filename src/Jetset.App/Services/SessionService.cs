@@ -8,18 +8,15 @@ public sealed class SessionService
 {
     private readonly ISessionStore _store;
     private readonly ITaskStore _taskStore;
-    private readonly ITaskSwitchEventStore? _switchEvents;
     private readonly Func<DateTimeOffset> _clock;
 
     public SessionService(
         ISessionStore store,
         ITaskStore taskStore,
-        ITaskSwitchEventStore? switchEvents = null,
         Func<DateTimeOffset>? clock = null)
     {
         _store = store;
         _taskStore = taskStore;
-        _switchEvents = switchEvents;
         _clock = clock ?? (() => DateTimeOffset.Now);
     }
 
@@ -56,7 +53,6 @@ public sealed class SessionService
         }
 
         var running = GetRunningSession();
-        RecordTaskSwitch(ResolveFromTaskId(taskId), taskId);
 
         if (running is not null)
         {
@@ -112,8 +108,6 @@ public sealed class SessionService
         {
             return;
         }
-
-        RecordTaskSwitch(ResolveFromTaskId(target.TaskId), target.TaskId);
 
         if (running is not null)
         {
@@ -335,39 +329,6 @@ public sealed class SessionService
     private WorkSession? GetRunningSession()
     {
         return _store.GetInProgressSessions().FirstOrDefault(s => s.State == SessionState.Running);
-    }
-
-    private Guid? ResolveFromTaskId(Guid toTaskId)
-    {
-        var running = GetRunningSession();
-        if (running is not null)
-        {
-            return running.TaskId != toTaskId ? running.TaskId : null;
-        }
-
-        var active = ActiveSession;
-        if (active is not null && active.TaskId != toTaskId)
-        {
-            return active.TaskId;
-        }
-
-        return null;
-    }
-
-    private void RecordTaskSwitch(Guid? fromTaskId, Guid toTaskId)
-    {
-        if (_switchEvents is null || fromTaskId is null)
-        {
-            return;
-        }
-
-        _switchEvents.Insert(new TaskSwitchEvent
-        {
-            Id = Guid.NewGuid(),
-            FromTaskId = fromTaskId,
-            ToTaskId = toTaskId,
-            OccurredAt = _clock()
-        });
     }
 
     private void PauseSession(WorkSession session)

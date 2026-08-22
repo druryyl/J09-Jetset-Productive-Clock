@@ -1,3 +1,5 @@
+// DOMAIN-REALIGNMENT: Historical migration only — Milestone table dropped in planned Migration011 (R-16). Do not extend.
+
 using Microsoft.Data.Sqlite;
 
 namespace Jetset.App.Persistence.Migrations;

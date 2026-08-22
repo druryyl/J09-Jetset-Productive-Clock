@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Jetset.App.Helpers;
 using Jetset.App.Models;
 using Jetset.App.Services;
+using TaskStatus = Jetset.App.Models.TaskStatus;
 
 namespace Jetset.App.ViewModels;
 
@@ -128,7 +129,7 @@ public sealed class StartSessionViewModel : ObservableObject
         }
 
         AvailableTasks.Clear();
-        foreach (var task in _tasks.ListActiveWork()
+        foreach (var task in _tasks.ListByStatuses([TaskStatus.Ready, TaskStatus.Waiting])
             .OrderByDescending(t => t.LastWorkedAt ?? t.UpdatedAt))
         {
             AvailableTasks.Add(new TaskPickerItem(task.Id, task.Title));

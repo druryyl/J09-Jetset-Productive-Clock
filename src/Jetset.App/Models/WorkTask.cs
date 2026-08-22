@@ -8,21 +8,15 @@ public sealed class WorkTask
 
     public TaskStatus Status { get; set; }
 
+    public TaskOrigin Origin { get; set; }
+
     public string? Notes { get; set; }
-
-    public string? CurrentStatus { get; set; }
-
-    public string? LastProgress { get; set; }
-
-    public string? NextAction { get; set; }
-
-    public string? Blocker { get; set; }
 
     public Guid? ProjectId { get; set; }
 
-    public Guid? MilestoneId { get; set; }
-
     public DateTimeOffset CreatedAt { get; init; }
+
+    public DateTimeOffset? CompletedAt { get; set; }
 
     public DateTimeOffset UpdatedAt { get; set; }
 

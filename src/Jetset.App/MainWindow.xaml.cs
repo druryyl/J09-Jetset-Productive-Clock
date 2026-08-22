@@ -35,11 +35,6 @@ public partial class MainWindow : Window
             ApplyTheme();
         };
 
-        _shellViewModel.Focus.ContextCaptureRequested += OnContextCaptureRequested;
-        _shellViewModel.Tasks.ContextCaptureRequested += OnContextCaptureRequested;
-        _shellViewModel.Projects.ContextCaptureRequested += OnContextCaptureRequested;
-        _shellViewModel.Search.ContextCaptureRequested += OnContextCaptureRequested;
-
         _shellViewModel.Focus.RecoveryNeeded += (_, session) =>
         {
             var dialog = new RecoveryDialog(session) { Owner = this };
@@ -85,23 +80,6 @@ public partial class MainWindow : Window
         Show();
         WindowState = WindowState.Normal;
         Activate();
-    }
-
-    private void OnContextCaptureRequested(object? sender, ContextCaptureRequest request)
-    {
-        var dialog = new ContextCaptureDialog(request) { Owner = this };
-        var confirmed = dialog.ShowDialog();
-        if (confirmed == true)
-        {
-            request.Result = dialog.CaptureResult;
-            request.Context = dialog.Context;
-            request.SessionNote = dialog.SessionNote;
-            return;
-        }
-
-        request.Result = request.Reason == ContextCaptureReason.Finish
-            ? ContextCaptureResult.Cancelled
-            : ContextCaptureResult.Skipped;
     }
 
     private void ShowV2WelcomeIfNeeded()
@@ -213,6 +191,18 @@ public partial class MainWindow : Window
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
         var focus = _shellViewModel.Focus;
+
+        if (Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.C)
+        {
+            if (_shellViewModel.CurrentArea != ShellArea.Focus)
+            {
+                _shellViewModel.NavigateTo(ShellArea.Focus);
+            }
+
+            focus.RequestQuickCaptureFocus();
+            e.Handled = true;
+            return;
+        }
 
         if (Keyboard.Modifiers == ModifierKeys.Control)
         {

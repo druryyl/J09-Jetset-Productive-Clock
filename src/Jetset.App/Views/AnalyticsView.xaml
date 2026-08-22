@@ -29,54 +29,11 @@
         </DataTrigger>
       </Style.Triggers>
     </Style>
-    <Style x:Key="MomentumBarTrackStyle" TargetType="Border">
-      <Setter Property="Height" Value="10" />
-      <Setter Property="CornerRadius" Value="2" />
-      <Setter Property="Background" Value="{DynamicResource HeatmapLevel0Brush}" />
-      <Setter Property="VerticalAlignment" Value="Center" />
-    </Style>
-
-    <DataTemplate x:Key="MomentumWeekTemplate">
-      <Grid Margin="0,0,0,10">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="52" />
-          <ColumnDefinition Width="172" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-
-        <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding WeekLabel}" FontSize="11"
-                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center" />
-        <Border Grid.Row="0" Grid.Column="1" Style="{StaticResource MomentumBarTrackStyle}">
-          <Border Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" CornerRadius="2"
-                  Height="10" Width="{Binding FocusBarWidth}" />
-        </Border>
-        <TextBlock Grid.Row="0" Grid.Column="2" Text="{Binding FocusTimeText}" FontSize="11"
-                   Margin="8,0,0,0" VerticalAlignment="Center" />
-
-        <TextBlock Grid.Row="1" Grid.Column="0" Text="Tasks" FontSize="10"
-                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"
-                   VerticalAlignment="Center" />
-        <Border Grid.Row="1" Grid.Column="1" Margin="0,4,0,0" Style="{StaticResource MomentumBarTrackStyle}">
-          <Border Background="{DynamicResource PausedBrush}" HorizontalAlignment="Left" CornerRadius="2"
-                  Height="10" Width="{Binding CompletionBarWidth}" />
-        </Border>
-        <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding CompletionText}" FontSize="10"
-                   Margin="8,4,0,0" Foreground="{DynamicResource TextSecondaryBrush}"
-                   VerticalAlignment="Center" />
-      </Grid>
-    </DataTemplate>
   </UserControl.Resources>
 
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid Margin="16">
       <Grid.RowDefinitions>
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
@@ -185,96 +142,17 @@
         </StackPanel>
       </Border>
 
-      <Border Grid.Row="2" Padding="16" Margin="0,0,0,16"
-              Background="{DynamicResource PanelBackgroundBrush}"
-              BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-        <StackPanel>
-          <DockPanel Margin="0,0,0,12">
-            <TextBlock Text="Context switches" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock DockPanel.Dock="Right" Text="{Binding SwitchRangeText}"
-                       Foreground="{DynamicResource TextSecondaryBrush}"
-                       VerticalAlignment="Center" />
-          </DockPanel>
-
-          <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-            <TextBlock Text="{Binding SwitchTotalText}" FontWeight="SemiBold" Margin="0,0,16,0" />
-            <TextBlock Text="{Binding SwitchAverageText}"
-                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,16,0" />
-            <TextBlock Text="{Binding BusiestHourText}"
-                       Foreground="{DynamicResource TextSecondaryBrush}" />
-          </StackPanel>
-
-          <TextBlock Text="Daily switches" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,8" />
-          <ListBox ItemsSource="{Binding DailySwitchCounts}"
-                   BorderBrush="{DynamicResource BorderBrush}"
-                   Background="{DynamicResource PanelBackgroundBrush}"
-                   MaxHeight="200">
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <Grid Margin="4">
-                  <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                  </Grid.ColumnDefinitions>
-                  <TextBlock Grid.Column="0" Text="{Binding DateLabel}" />
-                  <TextBlock Grid.Column="1" Text="{Binding SwitchCountText}"
-                             Foreground="{DynamicResource TextSecondaryBrush}" />
-                </Grid>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
-        </StackPanel>
-      </Border>
-
-      <Border Grid.Row="3" Padding="16" Margin="0,0,0,16"
-              Background="{DynamicResource PanelBackgroundBrush}"
-              BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
-        <StackPanel>
-          <DockPanel Margin="0,0,0,12">
-            <TextBlock Text="Project momentum" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <TextBlock DockPanel.Dock="Right" Text="{Binding MomentumRangeText}"
-                       Foreground="{DynamicResource TextSecondaryBrush}"
-                       VerticalAlignment="Center" />
-          </DockPanel>
-
-          <TextBlock Text="No projects yet. Create a project to track momentum."
-                     Foreground="{DynamicResource TextSecondaryBrush}"
-                     Visibility="{Binding HasProjects, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
-
-          <StackPanel Visibility="{Binding HasProjects, Converter={StaticResource BoolToVis}}">
-            <DockPanel Margin="0,0,0,12">
-              <TextBlock Text="Project" VerticalAlignment="Center"
-                         Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" />
-              <ComboBox ItemsSource="{Binding Projects}"
-                        SelectedValue="{Binding SelectedProjectId}"
-                        SelectedValuePath="Id"
-                        DisplayMemberPath="Name"
-                        MinWidth="220" />
-            </DockPanel>
-
-            <TextBlock Text="{Binding MomentumSummaryText}" Margin="0,0,0,12"
-                       Foreground="{DynamicResource TextSecondaryBrush}"
-                       Visibility="{Binding HasMomentumSelection, Converter={StaticResource BoolToVis}}" />
-
-            <TextBlock Text="Focus time by week" FontSize="12" FontWeight="SemiBold" Margin="0,0,0,8"
-                       Visibility="{Binding HasMomentumWeeks, Converter={StaticResource BoolToVis}}" />
-            <ItemsControl ItemsSource="{Binding MomentumWeeks}"
-                          ItemTemplate="{StaticResource MomentumWeekTemplate}"
-                          Visibility="{Binding HasMomentumWeeks, Converter={StaticResource BoolToVis}}" />
-          </StackPanel>
-        </StackPanel>
-      </Border>
-
-      <DockPanel Grid.Row="4" Margin="0,0,0,16">
+      <DockPanel Grid.Row="2" Margin="0,0,0,16">
         <TextBlock DockPanel.Dock="Left" Text="Date" VerticalAlignment="Center"
                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,8,0" />
         <DatePicker SelectedDate="{Binding SelectedDate}" Padding="4" />
       </DockPanel>
 
-      <Border Grid.Row="5" Padding="16" Margin="0,0,0,16"
+      <Border Grid.Row="3" Padding="16" Margin="0,0,0,16"
               Background="{DynamicResource PanelBackgroundBrush}"
               BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
         <StackPanel>
+          <TextBlock Text="{Binding DailyFocusDateText}" FontWeight="SemiBold" Margin="0,0,0,4" />
           <TextBlock Text="Focus time" FontSize="12"
                      Foreground="{DynamicResource TextSecondaryBrush}" />
           <TextBlock Text="{Binding TotalFocusTimeText}" FontSize="32" FontWeight="SemiBold"
@@ -284,7 +162,7 @@
         </StackPanel>
       </Border>
 
-      <Grid Grid.Row="6">
+      <Grid Grid.Row="4">
         <TextBlock Text="No focus time recorded for this day."
                    VerticalAlignment="Center" HorizontalAlignment="Center"
                    Foreground="{DynamicResource TextSecondaryBrush}"

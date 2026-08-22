@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Jetset.App.Helpers;
 using Jetset.App.Models;
 using Jetset.App.Services;
+using TaskStatus = Jetset.App.Models.TaskStatus;
 using WpfMessageBox = System.Windows.MessageBox;
 using WpfMessageBoxButton = System.Windows.MessageBoxButton;
 using WpfMessageBoxImage = System.Windows.MessageBoxImage;
@@ -13,33 +14,23 @@ public sealed class ProjectsViewModel : ObservableObject
 {
     private readonly AppServices _services;
     private ProjectListItemViewModel? _selected;
-    private MilestoneListItemViewModel? _selectedMilestone;
     private string _quickAddName = string.Empty;
     private string _quickAddTaskTitle = string.Empty;
-    private string _quickAddMilestoneName = string.Empty;
     private string? _message;
-    private string _momentumRangeText = string.Empty;
-    private string _momentumSummaryText = string.Empty;
 
     public ProjectsViewModel(AppServices services)
     {
         _services = services;
         Items = new ObservableCollection<ProjectListItemViewModel>();
         ProjectTasks = new ObservableCollection<TaskListItemViewModel>();
-        Milestones = new ObservableCollection<MilestoneListItemViewModel>();
-        MomentumWeeks = new ObservableCollection<ProjectMomentumWeekItemViewModel>();
 
         AddProjectCommand = new RelayCommand(AddProject, CanAddProject);
         SaveCommand = new RelayCommand(Save, () => Selected is not null);
         DeleteCommand = new RelayCommand(Delete, () => Selected is not null);
         AddTaskCommand = new RelayCommand(AddTask, CanAddTask);
-        AddMilestoneCommand = new RelayCommand(AddMilestone, CanAddMilestone);
-        SaveMilestoneCommand = new RelayCommand(SaveMilestone, () => SelectedMilestone is not null);
-        DeleteMilestoneCommand = new RelayCommand(DeleteMilestone, () => SelectedMilestone is not null);
-        MoveMilestoneUpCommand = new RelayCommand(MoveMilestoneUp, CanMoveMilestoneUp);
-        MoveMilestoneDownCommand = new RelayCommand(MoveMilestoneDown, CanMoveMilestoneDown);
         StartWorkForTaskCommand = new RelayCommand(BeginWorkForTask);
         ResumeWorkForTaskCommand = new RelayCommand(ResumeWorkForTask);
+        SwitchAndMarkWaitingForTaskCommand = new RelayCommand(SwitchAndMarkWaitingForTask);
         RefreshCommand = new RelayCommand(Load);
 
         Load();
@@ -49,26 +40,28 @@ public sealed class ProjectsViewModel : ObservableObject
 
     public ObservableCollection<TaskListItemViewModel> ProjectTasks { get; }
 
-    public ObservableCollection<MilestoneListItemViewModel> Milestones { get; }
-
-    public ObservableCollection<ProjectMomentumWeekItemViewModel> MomentumWeeks { get; }
-
     public RelayCommand AddProjectCommand { get; }
     public RelayCommand SaveCommand { get; }
     public RelayCommand DeleteCommand { get; }
     public RelayCommand AddTaskCommand { get; }
-    public RelayCommand AddMilestoneCommand { get; }
-    public RelayCommand SaveMilestoneCommand { get; }
-    public RelayCommand DeleteMilestoneCommand { get; }
-    public RelayCommand MoveMilestoneUpCommand { get; }
-    public RelayCommand MoveMilestoneDownCommand { get; }
     public RelayCommand StartWorkForTaskCommand { get; }
     public RelayCommand ResumeWorkForTaskCommand { get; }
+    public RelayCommand SwitchAndMarkWaitingForTaskCommand { get; }
     public RelayCommand RefreshCommand { get; }
 
     public event EventHandler? WorkStarted;
 
-    public event EventHandler<ContextCaptureRequest>? ContextCaptureRequested;
+    public bool CanSwitchTasks => _services.Sessions.ActiveSession is not null;
+
+    public void SelectProject(Guid projectId)
+    {
+        if (Items.All(i => i.Id != projectId))
+        {
+            Load();
+        }
+
+        Selected = Items.FirstOrDefault(i => i.Id == projectId);
+    }
 
     public ProjectListItemViewModel? Selected
     {
@@ -81,53 +74,18 @@ public sealed class ProjectsViewModel : ObservableObject
                 SaveCommand.RaiseCanExecuteChanged();
                 DeleteCommand.RaiseCanExecuteChanged();
                 AddTaskCommand.RaiseCanExecuteChanged();
-                AddMilestoneCommand.RaiseCanExecuteChanged();
-                LoadMilestones();
                 LoadProjectTasks();
-                RefreshMomentum();
-            }
-        }
-    }
-
-    public MilestoneListItemViewModel? SelectedMilestone
-    {
-        get => _selectedMilestone;
-        set
-        {
-            if (SetProperty(ref _selectedMilestone, value))
-            {
-                OnPropertyChanged(nameof(HasMilestoneSelection));
-                SaveMilestoneCommand.RaiseCanExecuteChanged();
-                DeleteMilestoneCommand.RaiseCanExecuteChanged();
-                MoveMilestoneUpCommand.RaiseCanExecuteChanged();
-                MoveMilestoneDownCommand.RaiseCanExecuteChanged();
+                LoadSelectedContext();
+                OnPropertyChanged(nameof(CanSwitchTasks));
             }
         }
     }
 
     public bool HasSelection => Selected is not null;
 
-    public bool HasMilestoneSelection => SelectedMilestone is not null;
-
     public bool HasItems => Items.Count > 0;
 
     public bool HasProjectTasks => ProjectTasks.Count > 0;
-
-    public bool HasMilestones => Milestones.Count > 0;
-
-    public bool HasMomentumWeeks => MomentumWeeks.Count > 0;
-
-    public string MomentumRangeText
-    {
-        get => _momentumRangeText;
-        private set => SetProperty(ref _momentumRangeText, value);
-    }
-
-    public string MomentumSummaryText
-    {
-        get => _momentumSummaryText;
-        private set => SetProperty(ref _momentumSummaryText, value);
-    }
 
     public string QuickAddName
     {
@@ -153,18 +111,6 @@ public sealed class ProjectsViewModel : ObservableObject
         }
     }
 
-    public string QuickAddMilestoneName
-    {
-        get => _quickAddMilestoneName;
-        set
-        {
-            if (SetProperty(ref _quickAddMilestoneName, value))
-            {
-                AddMilestoneCommand.RaiseCanExecuteChanged();
-            }
-        }
-    }
-
     public string? Message
     {
         get => _message;
@@ -175,35 +121,9 @@ public sealed class ProjectsViewModel : ObservableObject
 
     private bool CanAddTask() => Selected is not null && !string.IsNullOrWhiteSpace(QuickAddTaskTitle);
 
-    private bool CanAddMilestone() =>
-        Selected is not null && !string.IsNullOrWhiteSpace(QuickAddMilestoneName);
-
-    private bool CanMoveMilestoneUp()
-    {
-        if (SelectedMilestone is null)
-        {
-            return false;
-        }
-
-        var index = Milestones.IndexOf(SelectedMilestone);
-        return index > 0;
-    }
-
-    private bool CanMoveMilestoneDown()
-    {
-        if (SelectedMilestone is null)
-        {
-            return false;
-        }
-
-        var index = Milestones.IndexOf(SelectedMilestone);
-        return index >= 0 && index < Milestones.Count - 1;
-    }
-
     private void Load()
     {
         var selectedId = Selected?.Id;
-        var selectedMilestoneId = SelectedMilestone?.Id;
         Items.Clear();
 
         foreach (var summary in _services.Projects.List())
@@ -215,38 +135,8 @@ public sealed class ProjectsViewModel : ObservableObject
             ? Items.FirstOrDefault(i => i.Id == id)
             : null;
 
-        if (Selected is not null && selectedMilestoneId is { } mid)
-        {
-            SelectedMilestone = Milestones.FirstOrDefault(m => m.Id == mid);
-        }
-
         OnPropertyChanged(nameof(HasItems));
-    }
-
-    private void LoadMilestones()
-    {
-        var selectedMilestoneId = SelectedMilestone?.Id;
-        Milestones.Clear();
-        if (Selected is null)
-        {
-            SelectedMilestone = null;
-            OnPropertyChanged(nameof(HasMilestones));
-            return;
-        }
-
-        foreach (var milestone in _services.Milestones.ListByProject(Selected.Id))
-        {
-            var progress = _services.Milestones.GetProgress(milestone.Id);
-            Milestones.Add(new MilestoneListItemViewModel(milestone, progress));
-        }
-
-        SelectedMilestone = selectedMilestoneId is { } mid
-            ? Milestones.FirstOrDefault(m => m.Id == mid)
-            : null;
-
-        OnPropertyChanged(nameof(HasMilestones));
-        MoveMilestoneUpCommand.RaiseCanExecuteChanged();
-        MoveMilestoneDownCommand.RaiseCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSwitchTasks));
     }
 
     private void LoadProjectTasks()
@@ -258,52 +148,27 @@ public sealed class ProjectsViewModel : ObservableObject
             return;
         }
 
-        var milestoneNames = _services.Milestones.ListByProject(Selected.Id)
-            .ToDictionary(m => m.Id, m => m.Name);
-
         foreach (var task in _services.Tasks.ListByProject(Selected.Id))
         {
-            string? milestoneName = null;
-            if (task.MilestoneId is { } mid)
-            {
-                milestoneNames.TryGetValue(mid, out milestoneName);
-            }
-
-            ProjectTasks.Add(new TaskListItemViewModel(task, Selected.Name, milestoneName));
+            ProjectTasks.Add(new TaskListItemViewModel(task, Selected.Name));
         }
 
         ApplyWorkSessionState();
-
         OnPropertyChanged(nameof(HasProjectTasks));
     }
 
-    private void RefreshMomentum()
+    private void LoadSelectedContext()
     {
-        MomentumWeeks.Clear();
-        MomentumRangeText = string.Empty;
-        MomentumSummaryText = string.Empty;
-        OnPropertyChanged(nameof(HasMomentumWeeks));
-
         if (Selected is null)
         {
             return;
         }
 
-        var momentum = ProjectMomentumPresenter.Load(_services, Selected.Id);
-        if (momentum is null)
+        var project = _services.Projects.Get(Selected.Id);
+        if (project is not null)
         {
-            return;
+            Selected.ContextText = project.ContextText ?? string.Empty;
         }
-
-        MomentumRangeText = ProjectMomentumPresenter.FormatRangeText(momentum.StartDate, momentum.EndDate);
-        MomentumSummaryText = ProjectMomentumPresenter.FormatSummaryText(momentum);
-
-        foreach (var week in ProjectMomentumPresenter.MapWeeks(momentum))
-        {
-            MomentumWeeks.Add(week);
-        }
-
-        OnPropertyChanged(nameof(HasMomentumWeeks));
     }
 
     private void ApplyWorkSessionState()
@@ -313,6 +178,7 @@ public sealed class ProjectsViewModel : ObservableObject
         {
             item.HasPausedSession = execution.HasPausedSession(item.Id);
             item.IsActiveSession = execution.IsTaskFocused(item.Id);
+            item.ShowSwitchActions = CanSwitchTasks && item.CanStartWork;
         }
     }
 
@@ -326,12 +192,7 @@ public sealed class ProjectsViewModel : ObservableObject
         Message = null;
         try
         {
-            if (!TryPromptLeavingContext(out var leavingContext))
-            {
-                return;
-            }
-
-            _services.WorkExecution.StartWork(taskId, leavingContext: leavingContext);
+            _services.WorkExecution.StartWork(taskId);
             LoadProjectTasks();
             WorkStarted?.Invoke(this, EventArgs.Empty);
             Message = "Work started.";
@@ -352,12 +213,7 @@ public sealed class ProjectsViewModel : ObservableObject
         Message = null;
         try
         {
-            if (!TryPromptLeavingContext(out var leavingContext))
-            {
-                return;
-            }
-
-            _services.WorkExecution.ResumeWork(taskId, leavingContext);
+            _services.WorkExecution.ResumeWork(taskId);
             LoadProjectTasks();
             WorkStarted?.Invoke(this, EventArgs.Empty);
             Message = "Work resumed.";
@@ -368,33 +224,25 @@ public sealed class ProjectsViewModel : ObservableObject
         }
     }
 
-    private bool TryPromptLeavingContext(out WorkingContext? leavingContext)
+    private void SwitchAndMarkWaitingForTask(object? parameter)
     {
-        leavingContext = null;
-        var task = _services.WorkExecution.GetLeavingTask();
-        if (task is null)
+        if (!TryParseTaskId(parameter, out var taskId))
         {
-            return true;
+            return;
         }
 
-        var request = new ContextCaptureRequest
+        Message = null;
+        try
         {
-            Task = task,
-            Reason = ContextCaptureReason.Switch
-        };
-        ContextCaptureRequested?.Invoke(this, request);
-
-        if (request.Result == ContextCaptureResult.Cancelled)
-        {
-            return false;
+            _services.WorkExecution.StartWork(taskId, leavingStatus: TaskStatus.Waiting);
+            LoadProjectTasks();
+            WorkStarted?.Invoke(this, EventArgs.Empty);
+            Message = "Switched — previous task marked waiting.";
         }
-
-        if (request.Result == ContextCaptureResult.Saved)
+        catch (Exception ex)
         {
-            leavingContext = request.Context;
+            Message = ex.Message;
         }
-
-        return true;
     }
 
     private static bool TryParseTaskId(object? parameter, out Guid taskId)
@@ -453,8 +301,11 @@ public sealed class ProjectsViewModel : ObservableObject
             };
 
             var result = _services.Projects.Update(updated);
+            _services.Projects.UpdateContextText(Selected.Id, Selected.ContextText);
+
             Load();
             Selected = Items.FirstOrDefault(i => i.Id == result.Id);
+            LoadSelectedContext();
             Message = "Project updated.";
         }
         catch (Exception ex)
@@ -505,156 +356,11 @@ public sealed class ProjectsViewModel : ObservableObject
         try
         {
             var projectId = Selected.Id;
-            _services.Tasks.Create(QuickAddTaskTitle, projectId);
+            var created = _services.Tasks.Create(QuickAddTaskTitle, projectId, TaskOrigin.Planned);
             QuickAddTaskTitle = string.Empty;
             Load();
             Selected = Items.FirstOrDefault(i => i.Id == projectId);
             Message = "Task added to project.";
-        }
-        catch (Exception ex)
-        {
-            Message = ex.Message;
-        }
-    }
-
-    private void AddMilestone()
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        Message = null;
-        try
-        {
-            var projectId = Selected.Id;
-            var created = _services.Milestones.Create(projectId, QuickAddMilestoneName);
-            QuickAddMilestoneName = string.Empty;
-            LoadMilestones();
-            LoadProjectTasks();
-            SelectedMilestone = Milestones.FirstOrDefault(m => m.Id == created.Id);
-            Message = "Milestone created.";
-        }
-        catch (Exception ex)
-        {
-            Message = ex.Message;
-        }
-    }
-
-    private void SaveMilestone()
-    {
-        if (SelectedMilestone is null)
-        {
-            return;
-        }
-
-        Message = null;
-        try
-        {
-            var updated = new Milestone
-            {
-                Id = SelectedMilestone.Id,
-                ProjectId = SelectedMilestone.ProjectId,
-                Name = SelectedMilestone.Name,
-                SortOrder = SelectedMilestone.SortOrder,
-                CreatedAt = SelectedMilestone.Milestone.CreatedAt
-            };
-
-            var result = _services.Milestones.Update(updated);
-            LoadMilestones();
-            LoadProjectTasks();
-            SelectedMilestone = Milestones.FirstOrDefault(m => m.Id == result.Id);
-            Message = "Milestone updated.";
-        }
-        catch (Exception ex)
-        {
-            Message = ex.Message;
-        }
-    }
-
-    private void DeleteMilestone()
-    {
-        if (SelectedMilestone is null)
-        {
-            return;
-        }
-
-        var result = WpfMessageBox.Show(
-            $"Delete milestone \"{SelectedMilestone.Name}\"? Tasks will be unassigned from the milestone but not deleted.",
-            "Delete milestone",
-            WpfMessageBoxButton.YesNo,
-            WpfMessageBoxImage.Warning);
-
-        if (result != WpfMessageBoxResult.Yes)
-        {
-            return;
-        }
-
-        Message = null;
-        try
-        {
-            _services.Milestones.Delete(SelectedMilestone.Id);
-            LoadMilestones();
-            LoadProjectTasks();
-            Message = "Milestone deleted.";
-        }
-        catch (Exception ex)
-        {
-            Message = ex.Message;
-        }
-    }
-
-    private void MoveMilestoneUp()
-    {
-        if (Selected is null || SelectedMilestone is null)
-        {
-            return;
-        }
-
-        var index = Milestones.IndexOf(SelectedMilestone);
-        if (index <= 0)
-        {
-            return;
-        }
-
-        ReorderMilestones(index, index - 1);
-    }
-
-    private void MoveMilestoneDown()
-    {
-        if (Selected is null || SelectedMilestone is null)
-        {
-            return;
-        }
-
-        var index = Milestones.IndexOf(SelectedMilestone);
-        if (index < 0 || index >= Milestones.Count - 1)
-        {
-            return;
-        }
-
-        ReorderMilestones(index, index + 1);
-    }
-
-    private void ReorderMilestones(int fromIndex, int toIndex)
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        Message = null;
-        try
-        {
-            var orderedIds = Milestones.Select(m => m.Id).ToList();
-            var movedId = orderedIds[fromIndex];
-            orderedIds.RemoveAt(fromIndex);
-            orderedIds.Insert(toIndex, movedId);
-
-            _services.Milestones.Reorder(Selected.Id, orderedIds);
-            LoadMilestones();
-            SelectedMilestone = Milestones.FirstOrDefault(m => m.Id == movedId);
-            Message = "Milestone order updated.";
         }
         catch (Exception ex)
         {

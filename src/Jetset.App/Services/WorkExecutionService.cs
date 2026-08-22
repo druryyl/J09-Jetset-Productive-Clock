@@ -1,42 +1,37 @@
 using Jetset.App.Models;
+using TaskStatus = Jetset.App.Models.TaskStatus;
 
 namespace Jetset.App.Services;
 
 /// <summary>
-/// Orchestrates task selection and session start/resume while keeping task work metadata current.
+/// Coordinates task execution state with session start/pause/finish.
+/// <see cref="TaskService"/> is the authority for Running tasks; sessions follow.
 /// </summary>
 public sealed class WorkExecutionService
 {
     private readonly SessionService _sessions;
     private readonly TaskService _tasks;
-    private readonly ContextSnapshotService _snapshots;
 
-    public WorkExecutionService(
-        SessionService sessions,
-        TaskService tasks,
-        ContextSnapshotService snapshots)
+    public WorkExecutionService(SessionService sessions, TaskService tasks)
     {
         _sessions = sessions;
         _tasks = tasks;
-        _snapshots = snapshots;
     }
 
     public WorkSession? GetInProgressSessionForTask(Guid taskId) =>
         _sessions.GetInProgressSessions().FirstOrDefault(s => s.TaskId == taskId);
 
-    public WorkTask? GetActiveTask()
-    {
-        var session = _sessions.ActiveSession;
-        return session is null ? null : _tasks.Get(session.TaskId);
-    }
+    public WorkTask? GetActiveTask() => _tasks.GetRunningTask();
 
     public WorkTask? GetLeavingTask()
     {
-        var running = GetRunningSession();
+        var running = _sessions.GetInProgressSessions()
+            .FirstOrDefault(s => s.State == SessionState.Running);
         return running is null ? null : _tasks.Get(running.TaskId);
     }
 
     public bool IsTaskFocused(Guid taskId) =>
+        _tasks.GetRunningTask()?.Id == taskId &&
         _sessions.ActiveSession?.TaskId == taskId;
 
     public bool HasPausedSession(Guid taskId) =>
@@ -46,61 +41,38 @@ public sealed class WorkExecutionService
         Guid taskId,
         TimerMode mode = TimerMode.Stopwatch,
         TimeSpan? countdownDuration = null,
-        WorkingContext? leavingContext = null)
+        TaskStatus leavingStatus = TaskStatus.Ready)
     {
-        var task = RequireEligibleTask(taskId);
-
-        var existing = GetInProgressSessionForTask(taskId);
-        if (existing is not null)
-        {
-            if (existing.State == SessionState.Paused)
-            {
-                TouchLeavingRunningTask();
-                PreserveLeavingRunningTask(leavingContext, exceptTaskId: taskId);
-                _sessions.SwitchTo(existing.Id);
-            }
-
-            _tasks.RecordWorkStarted(taskId);
-            return _sessions.ActiveSession
-                ?? throw new InvalidOperationException("Session was not activated.");
-        }
-
-        TouchLeavingRunningTask();
-        PreserveLeavingRunningTask(leavingContext, exceptTaskId: taskId);
-        var session = _sessions.Start(task.Id, mode, countdownDuration);
-        _tasks.RecordWorkStarted(taskId);
-        return session;
+        _tasks.StartTask(taskId, leavingStatus);
+        return ActivateSessionForTask(taskId, mode, countdownDuration);
     }
 
-    public WorkSession ResumeWork(Guid taskId, WorkingContext? leavingContext = null)
+    public WorkSession ResumeWork(
+        Guid taskId,
+        TaskStatus leavingStatus = TaskStatus.Ready)
     {
-        RequireEligibleTask(taskId);
-
         var existing = GetInProgressSessionForTask(taskId);
-        if (existing is not null)
+        if (existing is { State: SessionState.Paused }
+            && _tasks.GetRunningTask()?.Id == taskId)
         {
-            PreserveLeavingRunningTask(leavingContext, exceptTaskId: taskId);
             _sessions.SwitchTo(existing.Id);
-            _tasks.RecordWorkStarted(taskId);
             return _sessions.ActiveSession
                 ?? throw new InvalidOperationException("Session was not activated.");
         }
 
-        return StartWork(taskId, leavingContext: leavingContext);
+        return StartWork(taskId, leavingStatus: leavingStatus);
     }
 
-    public void SwitchToSession(Guid sessionId, WorkingContext? leavingContext = null)
+    public void SwitchToSession(Guid sessionId, TaskStatus leavingStatus = TaskStatus.Ready)
     {
         var session = _sessions.GetInProgressSessions().FirstOrDefault(s => s.Id == sessionId)
             ?? throw new InvalidOperationException("Session is not in progress.");
 
-        TouchLeavingRunningTask();
-        PreserveLeavingRunningTask(leavingContext, exceptTaskId: session.TaskId);
+        _tasks.StartTask(session.TaskId, leavingStatus);
         _sessions.SwitchTo(sessionId);
-        _tasks.RecordWorkStarted(session.TaskId);
     }
 
-    public void PauseWork(WorkingContext? contextUpdate = null)
+    public void PauseWork()
     {
         var session = _sessions.ActiveSession
             ?? throw new InvalidOperationException("No active work session.");
@@ -110,82 +82,55 @@ public sealed class WorkExecutionService
             throw new InvalidOperationException("Only a running session can be paused.");
         }
 
-        PreserveContext(session.TaskId, contextUpdate);
         _sessions.Pause();
-        _tasks.RecordWorkStarted(session.TaskId);
     }
 
-    public WorkSession FinishWork(
-        string? note = null,
-        WorkingContext? contextUpdate = null,
-        DateTimeOffset? finishedAt = null)
+    public WorkSession FinishWork(string? note = null, DateTimeOffset? finishedAt = null)
     {
         var session = _sessions.ActiveSession
             ?? throw new InvalidOperationException("No active work session.");
 
-        PreserveContext(session.TaskId, contextUpdate);
-        return _sessions.Finish(note, finishedAt);
+        var taskId = session.TaskId;
+        var finished = _sessions.Finish(note, finishedAt);
+
+        if (_tasks.GetRunningTask()?.Id == taskId)
+        {
+            _tasks.StopTask(taskId);
+        }
+
+        return finished;
     }
 
-    public WorkSession FinishAtLastKnownActivity(WorkingContext? contextUpdate = null)
+    public WorkSession FinishAtLastKnownActivity()
     {
         var session = _sessions.ActiveSession
             ?? throw new InvalidOperationException("No active work session.");
 
-        PreserveContext(session.TaskId, contextUpdate);
-        return _sessions.FinishAtLastKnownActivity();
+        var finishAt = session.LastHeartbeatAt
+            ?? _sessions.GetIntervals(session.Id).LastOrDefault()?.EndedAt
+            ?? _sessions.GetIntervals(session.Id).LastOrDefault()?.StartedAt
+            ?? session.StartedAt;
+
+        return FinishWork(finishedAt: finishAt);
     }
 
-    private WorkTask RequireEligibleTask(Guid taskId)
+    private WorkSession ActivateSessionForTask(
+        Guid taskId,
+        TimerMode mode,
+        TimeSpan? countdownDuration)
     {
-        var task = _tasks.Get(taskId)
-            ?? throw new InvalidOperationException($"Task {taskId} was not found.");
-
-        if (!_tasks.IsEligibleForActiveWork(task))
+        var existing = GetInProgressSessionForTask(taskId);
+        if (existing is not null)
         {
-            throw new InvalidOperationException(
-                $"Task \"{task.Title}\" is not eligible for active work.");
+            if (existing.State == SessionState.Paused)
+            {
+                _sessions.SwitchTo(existing.Id);
+            }
+
+            return _sessions.ActiveSession
+                ?? throw new InvalidOperationException("Session was not activated.");
         }
 
-        return task;
-    }
-
-    private WorkSession? GetRunningSession() =>
-        _sessions.GetInProgressSessions().FirstOrDefault(s => s.State == SessionState.Running);
-
-    private void TouchLeavingRunningTask()
-    {
-        var running = GetRunningSession();
-        if (running is not null)
-        {
-            _tasks.RecordWorkStarted(running.TaskId);
-        }
-    }
-
-    private void PreserveLeavingRunningTask(WorkingContext? contextUpdate, Guid? exceptTaskId)
-    {
-        var running = GetRunningSession();
-        if (running is null || running.TaskId == exceptTaskId)
-        {
-            return;
-        }
-
-        PreserveContext(running.TaskId, contextUpdate);
-    }
-
-    private void PreserveContext(Guid taskId, WorkingContext? contextUpdate)
-    {
-        if (contextUpdate is not null)
-        {
-            _tasks.UpdateContext(
-                taskId,
-                contextUpdate.CurrentStatus,
-                contextUpdate.LastProgress,
-                contextUpdate.NextAction,
-                contextUpdate.Blocker,
-                contextUpdate.Notes);
-        }
-
-        _snapshots.Capture(taskId);
+        return _sessions.Start(taskId, mode, countdownDuration);
     }
 }

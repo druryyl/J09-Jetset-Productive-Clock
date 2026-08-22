@@ -2,8 +2,10 @@ namespace Jetset.App.Models;
 
 public enum TaskStatus
 {
-    Active = 0,
-    Blocked = 1,
-    Done = 2,
-    Cancelled = 3
+    Inbox = 0,
+    Ready = 1,
+    Running = 2,
+    Waiting = 3,
+    Done = 4,
+    Cancelled = 5
 }

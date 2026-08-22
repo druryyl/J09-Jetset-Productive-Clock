@@ -47,13 +47,13 @@ public class MigrationRunnerTests : IDisposable
     }
 
     [Fact]
-    public void GivenFreshDatabase_WhenRunnerRuns_ThenVersionIs11AndCoreTablesExist()
+    public void GivenFreshDatabase_WhenRunnerRuns_ThenVersionIs12AndCoreTablesExist()
     {
         var factory = CreateFactory();
 
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
         Assert.True(TableExists(factory, "WorkSession"));
         Assert.True(TableExists(factory, "WorkInterval"));
         Assert.True(TableExists(factory, "AppSetting"));
@@ -64,6 +64,7 @@ public class MigrationRunnerTests : IDisposable
         Assert.False(TableExists(factory, "ContextSnapshot"));
         Assert.False(TableExists(factory, "TaskSwitchEvent"));
         Assert.False(ColumnExists(factory, "Task", "MilestoneId"));
+        Assert.True(ColumnExists(factory, "Task", "EstimateMinutes"));
     }
 
     [Fact]
@@ -74,8 +75,8 @@ public class MigrationRunnerTests : IDisposable
         RunMigrations(factory);
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
-        Assert.Equal(11, CountSchemaVersionRows(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
+        Assert.Equal(12, CountSchemaVersionRows(factory));
     }
 
     [Fact]
@@ -86,7 +87,7 @@ public class MigrationRunnerTests : IDisposable
 
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
         Assert.Equal("Legacy Task", GetTaskName(factory, "legacy-session-1"));
         Assert.Equal("Legacy Task", GetTaskTitleForSession(factory, "legacy-session-1"));
         Assert.True(TableExists(factory, "Task"));
@@ -104,8 +105,8 @@ public class MigrationRunnerTests : IDisposable
         RunMigrations(factory);
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
-        Assert.Equal(11, CountSchemaVersionRows(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
+        Assert.Equal(12, CountSchemaVersionRows(factory));
         Assert.Equal("Still Here", GetTaskName(factory, "legacy-session-2"));
     }
 
@@ -117,7 +118,7 @@ public class MigrationRunnerTests : IDisposable
 
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
         Assert.True(TableExists(factory, "Project"));
         Assert.True(TableExists(factory, "Task"));
         Assert.False(TableExists(factory, "Milestone"));
@@ -132,7 +133,7 @@ public class MigrationRunnerTests : IDisposable
 
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
         Assert.False(TableExists(factory, "Milestone"));
         Assert.False(TableExists(factory, "ContextSnapshot"));
         Assert.True(TableExists(factory, "Project"));
@@ -146,7 +147,7 @@ public class MigrationRunnerTests : IDisposable
 
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
         Assert.False(TableExists(factory, "ContextSnapshot"));
         Assert.False(TableExists(factory, "Milestone"));
     }
@@ -159,7 +160,7 @@ public class MigrationRunnerTests : IDisposable
 
         RunMigrations(factory);
 
-        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.Equal(12, GetSchemaVersion(factory));
         Assert.NotNull(GetTaskId(factory, "v5-session-1"));
         Assert.Equal("V5 Task", GetTaskTitleForSession(factory, "v5-session-1"));
     }

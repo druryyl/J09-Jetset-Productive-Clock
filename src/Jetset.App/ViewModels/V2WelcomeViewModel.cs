@@ -9,8 +9,8 @@ public sealed class V2WelcomeViewModel
         UpgradedFromV1 = upgradedFromV1;
         Title = upgradedFromV1 ? "Welcome to Jetset V2" : "Welcome to Jetset";
         IntroText = upgradedFromV1
-            ? "Your existing work sessions were linked to tasks automatically. Jetset is now a personal execution workspace — task-first, with one Running task at a time."
-            : "Jetset is a personal execution workspace. Capture tasks quickly, run one at a time, and keep project context across switches.";
+            ? "Your existing work sessions were linked to tasks automatically. Jetset is now a Work Tree workspace — organize in a tree, run one task at a time, and keep project context in the panel beside it."
+            : "Jetset is a personal execution workspace. Capture tasks at the tree root, organize work in projects, run one task at a time, and keep project context visible while you work.";
     }
 
     public bool UpgradedFromV1 { get; }
@@ -21,21 +21,23 @@ public sealed class V2WelcomeViewModel
 
     public IReadOnlyList<string> Highlights { get; } =
     [
-        "Quick Capture to Inbox without disturbing your Running task.",
-        "One Running task at a time — switch from Ready or mark the previous task as Waiting.",
-        "Project context lives on the project, not on individual tasks.",
-        "Review focus time, activity heatmaps, and streaks in Analytics."
+        "Work Tree is your primary workspace — projects, tasks, drag-drop, and quick capture at the root.",
+        "Quick Capture to Inbox without disturbing your Running task (Ctrl+Shift+C).",
+        "One Running task at a time — use the Running Task Bar for timer, Done, Waiting, and Pause.",
+        "Project context, deadlines, and effort rollup live in the Context Panel beside the tree.",
+        "Review focus time, heatmaps, and streaks in Analytics (Settings tab).",
+        "Press Ctrl+M for a compact timer overlay when you want minimal chrome."
     ];
 
     public IReadOnlyList<ShortcutItem> Shortcuts => DefaultShortcuts;
 
     public static IReadOnlyList<ShortcutItem> DefaultShortcuts { get; } =
     [
-        new("Ctrl+Shift+C", "Quick Capture to Inbox"),
-        new("Ctrl+N", "Start work on the selected task"),
+        new("Ctrl+Shift+C", "Quick Capture to Inbox at tree root"),
+        new("Ctrl+N", "Start work (opens compact overlay task picker)"),
         new("Ctrl+P", "Pause or resume the active session"),
         new("Ctrl+Enter", "Finish the active session"),
-        new("Ctrl+M", "Toggle compact mode"),
+        new("Ctrl+M", "Toggle compact overlay"),
         new("Ctrl+H", "Show or hide the main window")
     ];
 }

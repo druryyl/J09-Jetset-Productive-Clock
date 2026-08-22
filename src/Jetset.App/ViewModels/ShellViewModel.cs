@@ -5,56 +5,44 @@ namespace Jetset.App.ViewModels;
 
 public sealed class ShellViewModel : ObservableObject, IDisposable
 {
-    public const double FocusDefaultWidth = 360;
-    public const double FocusDefaultHeight = 480;
-    public const double FocusCompactMinWidth = 280;
-    public const double FocusCompactMinHeight = 160;
+    public const double CompactOverlayMinWidth = 280;
+    public const double CompactOverlayMinHeight = 160;
+    public const double CompactOverlayWidth = 360;
+    public const double CompactOverlayHeight = 480;
     public const double PlanningMinWidth = 720;
     public const double PlanningMinHeight = 560;
 
-    private ShellArea _currentArea = ShellArea.Focus;
-    private bool _showNavigation = true;
+    private ShellArea _currentArea = ShellArea.WorkTree;
 
     public ShellViewModel(AppServices services)
     {
+        WorkTree = new WorkTreeViewModel(services);
+        Settings = new SettingsAreaViewModel(services);
         Focus = new FocusViewModel(services);
-        Tasks = new TasksViewModel(services);
-        Projects = new ProjectsViewModel(services);
-        Analytics = new AnalyticsViewModel(services);
         Search = new GlobalSearchViewModel(services);
 
-        NavigateFocusCommand = new RelayCommand(() => NavigateTo(ShellArea.Focus));
-        NavigateTasksCommand = new RelayCommand(() => NavigateTo(ShellArea.Tasks));
-        NavigateProjectsCommand = new RelayCommand(() => NavigateTo(ShellArea.Projects));
-        NavigateAnalyticsCommand = new RelayCommand(() => NavigateTo(ShellArea.Analytics));
+        NavigateWorkTreeCommand = new RelayCommand(() => NavigateTo(ShellArea.WorkTree));
+        NavigateSettingsCommand = new RelayCommand(() => NavigateTo(ShellArea.Settings));
+        ToggleCompactOverlayCommand = new RelayCommand(ToggleCompactOverlay);
 
-        Focus.CompactModeChanged += OnFocusCompactModeChanged;
-        Focus.EditProjectContextRequested += (_, projectId) => NavigateToProject(projectId);
-        Tasks.WorkStarted += (_, _) => NavigateTo(ShellArea.Focus);
-        Tasks.ViewProjectContextRequested += (_, projectId) => NavigateToProject(projectId);
-        Projects.WorkStarted += (_, _) => NavigateTo(ShellArea.Focus);
-        Search.WorkStarted += (_, _) => NavigateTo(ShellArea.Focus);
-        UpdateShowNavigation();
+        Focus.CompactModeChanged += OnCompactOverlayChanged;
+        Search.WorkStarted += (_, _) => NavigateTo(ShellArea.WorkTree);
         RaiseWindowSizeHint();
     }
 
+    public WorkTreeViewModel WorkTree { get; }
+
+    public SettingsAreaViewModel Settings { get; }
+
     public FocusViewModel Focus { get; }
-
-    public TasksViewModel Tasks { get; }
-
-    public ProjectsViewModel Projects { get; }
-
-    public AnalyticsViewModel Analytics { get; }
 
     public GlobalSearchViewModel Search { get; }
 
-    public RelayCommand NavigateFocusCommand { get; }
+    public RelayCommand NavigateWorkTreeCommand { get; }
 
-    public RelayCommand NavigateTasksCommand { get; }
+    public RelayCommand NavigateSettingsCommand { get; }
 
-    public RelayCommand NavigateProjectsCommand { get; }
-
-    public RelayCommand NavigateAnalyticsCommand { get; }
+    public RelayCommand ToggleCompactOverlayCommand { get; }
 
     public event EventHandler? WindowSizeHintChanged;
 
@@ -66,11 +54,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _currentArea, value))
             {
                 OnPropertyChanged(nameof(CurrentViewModel));
-                OnPropertyChanged(nameof(IsFocusSelected));
-                OnPropertyChanged(nameof(IsTasksSelected));
-                OnPropertyChanged(nameof(IsProjectsSelected));
-                OnPropertyChanged(nameof(IsAnalyticsSelected));
-                UpdateShowNavigation();
+                OnPropertyChanged(nameof(IsWorkTreeSelected));
+                OnPropertyChanged(nameof(IsSettingsSelected));
                 RaiseWindowSizeHint();
             }
         }
@@ -78,60 +63,35 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     public object CurrentViewModel => CurrentArea switch
     {
-        ShellArea.Tasks => Tasks,
-        ShellArea.Projects => Projects,
-        ShellArea.Analytics => Analytics,
-        _ => Focus
+        ShellArea.Settings => Settings,
+        _ => WorkTree
     };
 
-    public bool ShowNavigation
-    {
-        get => _showNavigation;
-        private set => SetProperty(ref _showNavigation, value);
-    }
+    public bool ShowNavigation => !IsCompactOverlay;
 
-    public bool IsFocusSelected => CurrentArea == ShellArea.Focus;
+    public bool IsCompactOverlay => Focus.IsCompact;
 
-    public bool IsTasksSelected => CurrentArea == ShellArea.Tasks;
+    public bool IsWorkTreeSelected => CurrentArea == ShellArea.WorkTree;
 
-    public bool IsProjectsSelected => CurrentArea == ShellArea.Projects;
+    public bool IsSettingsSelected => CurrentArea == ShellArea.Settings;
 
-    public bool IsAnalyticsSelected => CurrentArea == ShellArea.Analytics;
+    public double SuggestedMinWidth => IsCompactOverlay ? CompactOverlayMinWidth : PlanningMinWidth;
 
-    public double SuggestedMinWidth =>
-        CurrentArea == ShellArea.Focus ? FocusCompactMinWidth : PlanningMinWidth;
+    public double SuggestedMinHeight => IsCompactOverlay ? CompactOverlayMinHeight : PlanningMinHeight;
 
-    public double SuggestedMinHeight =>
-        CurrentArea == ShellArea.Focus ? FocusCompactMinHeight : PlanningMinHeight;
+    public double SuggestedWidth => IsCompactOverlay ? CompactOverlayWidth : PlanningMinWidth;
 
-    public double SuggestedWidth =>
-        CurrentArea == ShellArea.Focus ? FocusDefaultWidth : PlanningMinWidth;
-
-    public double SuggestedHeight =>
-        CurrentArea == ShellArea.Focus ? FocusDefaultHeight : PlanningMinHeight;
+    public double SuggestedHeight => IsCompactOverlay ? CompactOverlayHeight : PlanningMinHeight;
 
     public void NavigateTo(ShellArea area)
     {
-        if (area != ShellArea.Focus && Focus.IsCompact)
+        if (area == ShellArea.WorkTree)
         {
-            Focus.ExitCompactMode();
+            WorkTree.RefreshCommand.Execute(null);
         }
-
-        if (area == ShellArea.Tasks)
+        else if (area == ShellArea.Settings)
         {
-            Tasks.RefreshCommand.Execute(null);
-        }
-        else if (area == ShellArea.Projects)
-        {
-            Projects.RefreshCommand.Execute(null);
-        }
-        else if (area == ShellArea.Analytics)
-        {
-            Analytics.Refresh();
-        }
-        else if (area == ShellArea.Focus)
-        {
-            Focus.RefreshTaskLists();
+            Settings.Analytics.Refresh();
         }
 
         CurrentArea = area;
@@ -139,19 +99,35 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     public void NavigateToProject(Guid projectId)
     {
-        Projects.SelectProject(projectId);
-        NavigateTo(ShellArea.Projects);
+        NavigateTo(ShellArea.WorkTree);
+        WorkTree.SelectProject(projectId);
     }
 
-    private void OnFocusCompactModeChanged(object? sender, EventArgs e)
+    public void EnterCompactOverlay()
     {
-        UpdateShowNavigation();
+        if (!Focus.IsCompact)
+        {
+            Focus.IsCompact = true;
+        }
+    }
+
+    private void ToggleCompactOverlay()
+    {
+        if (Focus.IsCompact)
+        {
+            Focus.ExitCompactMode();
+        }
+        else
+        {
+            EnterCompactOverlay();
+        }
+    }
+
+    private void OnCompactOverlayChanged(object? sender, EventArgs e)
+    {
+        OnPropertyChanged(nameof(IsCompactOverlay));
+        OnPropertyChanged(nameof(ShowNavigation));
         RaiseWindowSizeHint();
-    }
-
-    private void UpdateShowNavigation()
-    {
-        ShowNavigation = !(CurrentArea == ShellArea.Focus && Focus.IsCompact);
     }
 
     private void RaiseWindowSizeHint()
@@ -165,7 +141,8 @@ public sealed class ShellViewModel : ObservableObject, IDisposable
 
     public void Dispose()
     {
-        Focus.CompactModeChanged -= OnFocusCompactModeChanged;
+        Focus.CompactModeChanged -= OnCompactOverlayChanged;
         Focus.Dispose();
+        WorkTree.Dispose();
     }
 }

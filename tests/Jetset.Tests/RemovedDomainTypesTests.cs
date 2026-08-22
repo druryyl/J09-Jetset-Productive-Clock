@@ -33,6 +33,10 @@ public class RemovedDomainTypesTests
         "Jetset.App.ViewModels.ProjectMomentumPresenter",
         "Jetset.App.ViewModels.ProjectMomentumWeekItemViewModel",
         "Jetset.App.Views.ContextCaptureDialog",
+        "Jetset.App.Views.FocusView",
+        "Jetset.App.Views.TasksView",
+        "Jetset.App.Views.ProjectsView",
+        "Jetset.App.Views.SettingsWindow",
     ];
 
     [Fact]

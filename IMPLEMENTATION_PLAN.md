@@ -1,746 +1,858 @@
 # Jetset V2 Implementation Plan
 
-**Version:** 2.1  
+**Version:** 3.0  
 **Status:** Approved Artifact  
-**Source of Truth:** [DOMAIN.md](./DOMAIN.md)  
+**Source of Truth:** [ADR-0007](./ADR-0007-worktree-workspace-n-unified-workitem-model.md)  
+**Domain Reference:** [DOMAIN.md](./DOMAIN.md) (subordinate to ADR-0007 for workspace/UI/model decisions)  
 **Date:** 2026-08-22  
-**Supersedes:** Implementation Plan v2.0
+**Supersedes:** Implementation Plan v2.1, [V2-UI-IMPLEMENTATION-PLAN.md](./V2-UI-IMPLEMENTATION-PLAN.md)
 
 ---
 
 ## Executive Summary
 
-The Jetset codebase has evolved beyond V1 into a **V2-draft productivity layer** that closely followed the old implementation plan. That plan treated Jetset as a lightweight project-management system: milestones, task-level context, context snapshots, resume queue, project momentum, and context-switch metrics.
+Jetset V2 adopts a **Work Tree Workspace** as its primary interaction surface. ADR-0007 (Accepted) supersedes the prior Focus-centric direction. Projects and Tasks form a unified **WorkItem** conceptual model. The user organizes work in a hierarchical tree, edits project context in an adjacent panel, and executes via a **Running Task Bar**.
 
-The **approved DOMAIN.md** has since been rewritten. Jetset is now defined as a **Personal Execution Workspace** — task-first, single Running task, project-scoped context, minimal analytics.
-
-**This plan does not preserve the old roadmap.** It evaluates the current codebase against DOMAIN.md and defines the shortest practical path to domain alignment.
-
-### v2.1 refinements (2026-08-22)
-
-| Decision | Change |
-|---|---|
-| **#1 Simplify project context** | `ContextText` on `Project` — no structured `ProjectContext` entity |
-| **#2 Session engine position** | **Option B:** supporting capability; task execution is primary |
-| **#3 Quick Capture** | First-class capability with dedicated roadmap slices |
-| **#4 Task switching** | Default → `Ready`; user-initiated → `Waiting`; quick capture does not switch |
+The codebase has already completed significant DOMAIN.md alignment: six-state task lifecycle, single Running task, project `ContextText`, analytics simplification, and schema cleanup (migrations 008–011). Remaining work targets ADR-0007 gaps: Work Tree UI, Task↔Project conversion, optional task estimates, effort rollup, drag-drop membership, and navigation rework.
 
 ### Strategic posture
 
 | Principle | Implication |
 |---|---|
-| DOMAIN.md is source of truth | Old slices S-03 through S-13, S-17, S-18 are **invalid** |
-| Codebase is starting material | Reuse session engine, migrations, MVVM shell — not the draft domain model |
-| Refactor over rewrite | Adapt `TaskService`, `WorkExecutionService`, views — do not rebuild from scratch |
-| Simplification over expansion | Remove conflicting features before adding missing ones |
-| Incremental delivery | Each wave is shippable and moves the product closer to DOMAIN.md |
+| ADR-0007 is source of truth | Focus Workspace artifacts are obsolete |
+| Codebase is starting material | Reuse session engine, migrations, MVVM shell |
+| Refactor over rewrite | Extend `TaskService`, `ProjectService`; new `WorkTreeService` |
+| Option A hierarchy | Project → Task only; no nested projects in V2 |
+| Incremental delivery | Each slice is shippable and independently testable |
 
 ---
 
-# 1. Current State Assessment
+# Phase 1 — Artifact Alignment Report
 
-## 1.1 Technology Stack
+## Aligned
+
+| Artifact | Section | Alignment with ADR-0007 |
+|---|---|---|
+| **ADR-0007** | Entire document | Source of truth |
+| **DOMAIN.md** | §2 Quick Capture | Capture without disturbing Running task (BR-11 ↔ Decision 15) |
+| **DOMAIN.md** | §2 Single Active Task | One Running task globally (↔ Decision 7) |
+| **DOMAIN.md** | §2 Context Preservation | Context on Project, not Task (↔ Decisions 12–13) |
+| **DOMAIN.md** | §3.1 Project `ContextText` | Project-owned editable context |
+| **DOMAIN.md** | §3.3 Work Session | Sessions on tasks; effort from sessions (↔ Decision 8) |
+| **DOMAIN.md** | §4 Task lifecycle | Inbox/Ready/Running/Waiting/Done/Cancelled |
+| **DOMAIN.md** | §8 Removed concepts | Milestones, snapshots, resume queue, momentum |
+| **DOMAIN.md** | §7.1 Session engine | Supporting capability; task execution primary |
+| **DOMAIN.md** | §3.1 Project `Deadline` column | Deadline on projects exists in model |
+| **Codebase** | `TaskService`, `ProjectService` | Lifecycle, `CaptureToInbox`, single Running, `ContextText` |
+| **Codebase** | Migrations 008–011 | Status remap, context migration, schema cleanup |
+| **Codebase** | `AppServices` | Milestones/snapshots/queue removed from wiring |
+
+## Conflicting
+
+| Artifact | Section | Conflict | ADR-0007 |
+|---|---|---|---|
+| **DOMAIN.md** | §2 "Task First" | Task is primary object | Work Tree is central object |
+| **DOMAIN.md** | §11.5 UI Structure | Focus / Tasks / Projects / Analytics nav | Work Tree + Context Panel + Running Task Bar |
+| **DOMAIN.md** | §8 Removed Concepts | "Deadline … not a planning driver" | Decision 11: deadline visible in workflow |
+| **DOMAIN.md** | §3 Domain Model | Separate Project + Task aggregates | Unified WorkItem (`Task` + `Project`) |
+| **DOMAIN.md** | Entire doc | No Task↔Project conversion | Decisions 2–3 |
+| **DOMAIN.md** | Entire doc | Flat membership only | Hierarchical work tree + drag-drop (Decisions 4–5) |
+| **DOMAIN.md** | Entire doc | No task estimate | Decision 9: optional estimate |
+| **DOMAIN.md** | Entire doc | No effort rollup | Decision 10: derived rollup |
+| **IMPLEMENTATION_PLAN.md** (v2.1) | Source of truth | DOMAIN.md | ADR-0007 supersedes for workspace/UI/model |
+| **IMPLEMENTATION_PLAN.md** (v2.1) | Wave 4 R-09–R-11 | Focus/Tasks/Projects realignment | Obsolete direction |
+| **V2-UI-IMPLEMENTATION-PLAN.md** | Entire document | Focus-centric UI | Work Tree primary layout |
+| **README.md** | Features | Four primary areas: Focus, Tasks, Projects, Analytics | Work Tree Workspace primary |
+| **Codebase** | `ShellArea`, `MainWindow` | Focus default nav tab | Work Tree should be default |
+| **Codebase** | `FocusView` | Session/clock-centric layout | Not ADR layout |
+| **Codebase** | Models | No `Estimate`; no conversion APIs | Decisions 2–3, 9–10 |
+
+## Obsolete
+
+| Artifact | Section | Reason |
+|---|---|---|
+| **IMPLEMENTATION_PLAN.md** (v2.1) | Wave 4 R-09 Focus realignment | Superseded by Work Tree UI |
+| **IMPLEMENTATION_PLAN.md** (v2.1) | §6.6 Focus-centric UI table | Superseded by ADR Decision 14 |
+| **V2-UI-IMPLEMENTATION-PLAN.md** | §2–5 Focus screen inventory & wireframe | Superseded by Work Tree + Context Panel |
+| **V2-UI-IMPLEMENTATION-PLAN.md** | Slices 2–7 (Focus restructuring) | Replace with Work Tree slices |
+| **DOMAIN.md** | §11.5 "Focus / Timer" row | Replace with Work Tree + Running Task Bar |
+| **DOMAIN.md** | §8 "Deadline … not a planning driver" | ADR elevates deadline visibility |
+| **Code** | `FocusView` as primary workspace | Retire or demote to compact overlay only |
+| **Code** | `TasksView` / `ProjectsView` as co-primary nav | Demote to secondary or merge into tree |
+
+**Missing artifacts (must be created):**
+
+- `ARCHITECTURE.md` — referenced by ADR-0007 but does not exist
+- `ROADMAP.md` — referenced by ADR-0007 but does not exist
+
+---
+
+# Phase 2 — Artifact Update Plan
+
+## DOMAIN.md
+
+**Current state:** Task-first design, separate Project/Task aggregates, Focus-centric UI expectations, deadline de-emphasized, no estimates/rollup/conversion.
+
+**Required change:**
+
+1. Add §2 design principle: **Work Tree First** — Work Tree is the primary interaction surface.
+2. Replace §3 domain diagram with unified WorkItem model and tree hierarchy.
+3. Add §3.4 WorkItem (conceptual union of Task + Project).
+4. Add Task `Estimate` (optional `EstimateMinutes`).
+5. Add conversion rules: Task→Project, Project→Task (`Children.Count == 0`).
+6. Add effort rollup rules on Project (derived, not stored).
+7. Update §8: remove "Deadline not a planning driver"; state deadline is project-only, workflow-visible.
+8. Replace §11.5 UI with ADR Decision 14 layout.
+9. Add drag-drop membership and expand/collapse as UI behaviors (not domain state).
+10. Reconcile Quick Capture: ADR default `Parent=Root`; retain Inbox status per existing lifecycle.
+
+**Reason:** ADR-0007 Decisions 1–15.
+
+---
+
+## ARCHITECTURE.md (create)
+
+**Current state:** Does not exist.
+
+**Required change:** Create document covering:
+
+- Work Tree Workspace as primary UI architecture
+- Unified WorkItem conceptual model with separate persistence (Task + Project tables)
+- `WorkTreeService`, `WorkItemConversionService`, `EffortService`
+- Context Panel resolution (selected project or owning project of selected task)
+- Running Task Bar as execution chrome (not primary workspace)
+- Tree expand/collapse persisted in UI layer (`AppSetting` or `TreeStateStore`)
+- Session engine remains supporting layer
+- Navigation: Work Tree (default) → Settings / Analytics (secondary)
+
+**Reason:** ADR-0007 Required Follow-Up.
+
+---
+
+## ROADMAP.md (create)
+
+**Current state:** Does not exist.
+
+**Required change:** Create slice-based roadmap aligned to Phase 6 of this plan.
+
+**Reason:** ADR-0007 Required Follow-Up.
+
+---
+
+## IMPLEMENTATION_PLAN.md (this document)
+
+**Current state:** v2.1 DOMAIN.md-aligned Focus-centric plan.
+
+**Required change:** Replaced by v3.0 (this document).
+
+**Reason:** ADR-0007 supersedes Focus Workspace direction.
+
+---
+
+## V2-UI-IMPLEMENTATION-PLAN.md
+
+**Current state:** Focus-centric UI plan.
+
+**Required change:** Mark status **Superseded by IMPLEMENTATION_PLAN.md v3.0**.
+
+**Reason:** Entire document conflicts with Decision 14.
+
+---
+
+## README.md
+
+**Current state:** Describes Focus, Tasks, Projects, Analytics as four primary areas.
+
+**Required change:**
+
+1. Lead with **Work Tree Workspace** as primary surface.
+2. Describe Context Panel, Running Task Bar, Quick Capture, drag-drop, conversion.
+3. Demote Tasks/Projects/Focus to secondary or remove as primary nav concepts.
+4. Add task estimates and project effort rollup to feature list.
+
+**Reason:** ADR Decisions 4, 9, 10, 14, 15.
+
+---
+
+# Phase 3 — Domain Impact Analysis
+
+## WorkItem Model
+
+**Expected:**
+
+```text
+WorkItem
+├── Task
+└── Project
+```
+
+**Current state:** Separate `WorkTask` and `Project` entities with no shared abstraction or conversion.
+
+**Evaluation:** Partially supports — both entities exist with `Id`, `Title`/`Name`, timestamps. No unified type, no polymorphic tree node, no conversion.
+
+**Required changes:**
+
+```csharp
+// Conceptual — not prescriptive naming
+public enum WorkItemKind { Task, Project }
+
+public interface IWorkItemNode
+{
+    Guid Id { get; }
+    WorkItemKind Kind { get; }
+    string DisplayName { get; }
+    Guid? ParentProjectId { get; }  // null = root
+}
+```
+
+- `WorkTask` maps to `WorkItemKind.Task`
+- `Project` maps to `WorkItemKind.Project` with `ParentProjectId = null` always (Option A)
+- `WorkTreeService` builds tree from root projects + root tasks + children by `ProjectId`
+
+---
+
+## Task → Project Conversion
+
+**Current state:** Not supported. `TaskService` and `ProjectService` are independent.
+
+**Required changes:**
+
+- `WorkItemConversionService.ConvertTaskToProject(taskId)`:
+  1. Load task; reject if `Running`.
+  2. Create `Project` with `Name = task.Title`.
+  3. Delete original task (user adds child tasks manually after conversion).
+  4. Return new project.
+
+**Clarification:** ADR example implies user subsequently adds child tasks. Conversion does not auto-split title into subtasks.
+
+---
+
+## Project → Task Conversion
+
+**Constraint:** `Project.Children.Count == 0`
+
+**Current state:** Not supported. `ProjectService.Delete` detaches tasks; no conversion.
+
+**Required changes:**
+
+- `WorkItemConversionService.ConvertProjectToTask(projectId)`:
+  1. Verify zero tasks with `ProjectId == projectId`.
+  2. Create `WorkTask` with `Title = project.Name`, `Status = Ready` (or Inbox).
+  3. Transfer `ContextText` to task `Notes` with user confirmation (context cannot live on task per ADR).
+  4. Delete project; warn user about deadline loss.
+  5. Return new task.
+
+---
+
+## Project Hierarchy
+
+| Option | Structure | Assessment |
+|---|---|---|
+| **A** | `Project → Task` only | Matches ADR examples, drag-drop, rollup formula |
+| **B** | `Project → Task + Project` | Not specified; requires `ParentProjectId`, recursive rollup |
+
+**Recommendation: Option A for V2**
+
+**Rationale:**
+
+1. ADR Decision 5 describes Task→Project drag-drop, not Project→Project.
+2. Rollup formula is `Sum(ChildTaskSpent)` — flat, not recursive.
+3. Task→Project conversion produces a project container; nested projects add complexity without ADR mandate.
+4. SIS example (`Student Lifecycle`, `Academic Delivery`) reads as tasks under a project.
+
+**Future:** Option B can be a future ADR if needed; do not implement in V2.
+
+---
+
+## Effort Rollup
+
+**ADR formulas:**
+
+```text
+ProjectSpent     = Sum(ChildTaskSpent)
+ProjectEstimate  = Sum(ChildTaskEstimate)   // only tasks with estimates
+```
+
+**Current state:** No `Estimate` on tasks. Spent time computable via session aggregation.
+
+**Recommendation:**
+
+| Aspect | Approach |
+|---|---|
+| **Task spent** | `EffortService.GetTaskSpent(taskId)` — sum `WorkSession.ActiveDuration` |
+| **Task estimate** | New `WorkTask.EstimateMinutes` (nullable `int?`) on Task table |
+| **Project rollup** | Calculated on read in `EffortService.GetProjectRollup(projectId)` |
+| **Persistence** | Do not store rollup on Project — derived only (ADR: no manual project effort) |
+| **UI** | Context Panel and tree nodes show spent/estimate when present |
+| **Performance** | Batch query for tree refresh; cache per refresh cycle in ViewModel |
+
+**Edge cases:**
+
+- Tasks without estimate contribute to spent sum but not estimate sum.
+- Done/cancelled tasks still contribute spent.
+- Standalone tasks show spent in tree; no rollup.
+
+---
+
+# Phase 4 — Architecture Impact Report
+
+| Area | Impact | Rationale |
+|---|---|---|
+| **Entities** | **Major** | Add `Estimate` on Task; conceptual WorkItem; conversion transforms entities |
+| **Aggregates** | **Major** | Unified WorkItem concept; conversion crosses aggregate boundaries |
+| **Repositories** | **Minor** | Add tree queries (`ListRootItems`, `ListByParentProject`); existing stores sufficient |
+| **Database Schema** | **Minor** | Add `Task.EstimateMinutes`; no `ParentProjectId` for Option A |
+| **Services** | **Major** | New: `WorkTreeService`, `WorkItemConversionService`, `EffortService` |
+| **Session Engine** | **No Change** | Spent derives from existing sessions |
+| **Time Tracking** | **Minor** | Read-side aggregation for rollup |
+| **Navigation** | **Major** | Work Tree default; Focus demoted |
+| **ViewModels** | **Major** | New: `WorkTreeViewModel`, `ContextPanelViewModel`, `RunningTaskBarViewModel` |
+| **Tree State Persistence** | **Minor** | New `ITreeStateStore` or `AppSetting` JSON; UI-only per Decision 6 |
+| **Context Management** | **Minor** | Move from Focus inline to Context Panel |
+
+---
+
+# Phase 5 — UI Architecture
+
+## Primary Layout (ADR Decision 14)
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ [Work Tree]  [Settings]  [Search…]                           │
+├────────────────────────────┬─────────────────────────────────┤
+│                            │                                 │
+│  Work Tree                 │  Context Panel                  │
+│  ─────────                 │  ─────────────                  │
+│  [Quick Capture input]     │  Project: Jetset V2             │
+│                            │  Deadline: 31 Dec 2026          │
+│  ▼ Jetset V2  125h / 200h  │  Estimate: 200h (rollup)        │
+│    Authentication  18h     │  Spent: 125h (rollup)           │
+│    UI Design       40h     │                                 │
+│  ▶ SIS                     │  Context:                       │
+│  SSL Investigation  5h     │  ┌─────────────────────────┐   │
+│                            │  │ editable ContextText    │   │
+│                            │  └─────────────────────────┘   │
+├────────────────────────────┴─────────────────────────────────┤
+│ Running Task Bar                                             │
+│ Authentication · Running · 01:24:32  [Done][Waiting][Pause]  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+## Screens
+
+| Screen | Role | Primary? |
+|---|---|---|
+| **WorkTreeView** | Tree navigation, capture, drag-drop, expand/collapse | **Yes (default)** |
+| **SettingsView** | Preferences, hotkeys, timer defaults | Secondary nav |
+| **AnalyticsView** | Personal metrics | Secondary (from Settings) |
+| **HistoryWindow** | Session history | Modal from Settings |
+| **CompactOverlay** | Minimal Running Task Bar + timer | Mode toggle |
+| **RecoveryDialog** | Crash recovery | Modal |
+
+**Demoted / retire from primary nav:**
+
+- `FocusView` → absorbed into Running Task Bar (+ optional compact overlay)
+- `TasksView` → tree shows all tasks; keep as power-user secondary or remove
+- `ProjectsView` → tree shows projects; Context Panel handles detail
+
+## Navigation
+
+```text
+Startup → Work Tree
+
+ShellArea: WorkTree, Settings   // Analytics via Settings
+
+Cross-navigation:
+  Search "Start"     → start task, stay on Work Tree
+  Settings           → SettingsView
+  Settings → Analytics → AnalyticsView (embedded or window)
+```
+
+## ViewModels
+
+| ViewModel | Responsibility |
+|---|---|
+| `WorkTreeViewModel` | Tree nodes, selection, expand/collapse, quick capture, drag-drop |
+| `WorkTreeNodeViewModel` | `Kind`, `Title`, `SpentText`, `EstimateText`, `IsExpanded`, `Children`, `IsRunning` |
+| `ContextPanelViewModel` | Resolved project context, deadline edit, rollup display, `ContextText` edit |
+| `RunningTaskBarViewModel` | Running task title, timer, Done/Waiting/Pause/Stop |
+| `ShellViewModel` | Nav, window sizing (Work Tree ~720×560 default), search overlay |
+
+**Context resolution:**
+
+```text
+Selected Task with ProjectId  → Context Panel shows owning project
+Selected Project              → Context Panel shows that project
+Selected standalone Task      → Context Panel hidden or minimal
+Running task                  → Running Task Bar (independent of selection)
+```
+
+## Commands
+
+| Command | Trigger | Behavior |
+|---|---|---|
+| `QuickCaptureCommand` | Capture input Enter / hotkey | Create Task, `Status=Inbox`, `Parent=Root`; Running unchanged |
+| `StartTaskCommand` | Double-click task / Start button | `StartTask`; previous Running → Ready (default) |
+| `MarkDoneCommand` | Running Task Bar | `CompleteTask` + end session |
+| `MarkWaitingCommand` | Running Task Bar | `StopTask(Waiting)` + end session |
+| `PauseResumeCommand` | Running Task Bar | Session pause/resume |
+| `ToggleExpandCommand` | Click chevron | UI expand/collapse; persist state |
+| `DragDropReparentCommand` | Drag task onto project | Set `Task.ProjectId`; drag to root → null |
+| `ConvertToProjectCommand` | Context menu | `ConvertTaskToProject` |
+| `ConvertToTaskCommand` | Context menu | `ConvertProjectToTask` (if no children) |
+| `UpdateEstimateCommand` | Inline edit / panel | Set task estimate |
+| `UpdateDeadlineCommand` | Context Panel | Set project deadline |
+| `SaveContextCommand` | Context Panel debounce | `UpdateContextText` |
+
+## Interactions
+
+| Interaction | Behavior |
+|---|---|
+| **Quick Capture** | Always-visible input at top of tree; Enter creates root Inbox task |
+| **Tree navigation** | Single selection drives Context Panel |
+| **Drag & Drop** | Task→Project, Task→Root; no Project→Project in V2 |
+| **Expand/Collapse** | Per-project; persisted in UI store |
+| **Context editing** | Always editable in Context Panel when project resolved |
+| **Deadline visibility** | Context Panel header when project selected |
+| **Estimate visibility** | Tree node suffix + Context Panel rollup |
+| **Effort visibility** | Tree node spent suffix; project rollup in panel |
+| **Running Task Controls** | Bottom bar always visible when task Running |
+
+---
+
+# Phase 6 — Slice-Based Implementation Plan
+
+Foundation note: lifecycle realignment, `ContextText`, schema cleanup (migrations 008–011) are largely complete. Slices below target ADR-0007 gaps.
+
+---
+
+## Slice 1 — ADR Alignment & Artifact Updates
+
+**Goal:** All planning artifacts aligned to ADR-0007.
+
+**Scope:** Update DOMAIN.md, README.md; create ARCHITECTURE.md, ROADMAP.md; supersede V2-UI-IMPLEMENTATION-PLAN.md.
+
+**Domain Impact:** Documentation only.
+
+**UI Impact:** None.
+
+**Acceptance Criteria:**
+
+- No artifact describes Focus as primary workspace.
+- DOMAIN.md includes WorkItem, conversion, estimate, rollup, Work Tree UI.
+- ARCHITECTURE.md and ROADMAP.md exist.
+
+**Risks:** Low — documentation drift if not completed before code slices.
+
+---
+
+## Slice 2 — WorkItem Domain Foundation
+
+**Goal:** Shared WorkItem concepts and effort primitives.
+
+**Scope:** `WorkItemKind`, `IWorkItemNode`, `EffortService`, `WorkTreeService` (read-only tree queries).
+
+**Domain Impact:** Add `EstimateMinutes` to `WorkTask`; migration 012.
+
+**UI Impact:** None.
+
+**Acceptance Criteria:**
+
+- `ListRootWorkItems()` returns projects + standalone tasks.
+- `GetChildren(projectId)` returns tasks.
+- `GetTaskSpent` / `GetProjectRollup` return correct sums.
+- Tests for rollup with mixed estimated/unestimated tasks.
+
+**Risks:** Medium — migration for estimate column.
+
+---
+
+## Slice 3 — Task ↔ Project Conversion
+
+**Goal:** Bidirectional conversion per ADR Decisions 2–3.
+
+**Scope:** `WorkItemConversionService`, context menu command hooks.
+
+**Domain Impact:** Conversion rules, validation (`Children.Count == 0`).
+
+**UI Impact:** None yet (commands wired in Slice 7).
+
+**Acceptance Criteria:**
+
+- Task→Project creates project, removes task.
+- Project→Task blocked when children exist.
+- Running task cannot convert.
+- Tests for all constraint paths.
+
+**Risks:** Medium — context/deadline handling on Project→Task needs clear UX copy.
+
+---
+
+## Slice 4 — Tree State Persistence
+
+**Goal:** Expand/collapse state survives restart.
+
+**Scope:** `ITreeStateStore` (AppSetting JSON or small table).
+
+**Domain Impact:** None (UI-only per ADR Decision 6).
+
+**UI Impact:** Prerequisite for Slice 5.
+
+**Acceptance Criteria:**
+
+- Expanded project IDs persist and restore.
+- No domain entity stores expansion state.
+
+**Risks:** Low.
+
+---
+
+## Slice 5 — Work Tree UI Foundation
+
+**Goal:** Primary workspace shell with split layout.
+
+**Scope:** `WorkTreeView`, `ContextPanelView` (placeholder), `RunningTaskBarView`; `ShellArea.WorkTree` default; window sizing ~720×560.
+
+**Domain Impact:** None.
+
+**UI Impact:** **Major** — new primary view replaces Focus as startup.
+
+**Acceptance Criteria:**
+
+- App starts on Work Tree layout.
+- Tree lists root items with children on expand.
+- Selection changes Context Panel target.
+- Running Task Bar visible at bottom.
+
+**Risks:** High — navigation regression; mitigate with temporary Focus tab if needed (remove in Slice 12).
+
+---
+
+## Slice 6 — Drag & Drop Membership
+
+**Goal:** Task→Project and Task→Root via drag-drop.
+
+**Scope:** WPF drag-drop on `WorkTreeView`; `TaskService.AssignToProject` / `DetachFromProject`.
+
+**Domain Impact:** Uses existing `ProjectId` FK.
+
+**UI Impact:** Tree interaction.
+
+**Acceptance Criteria:**
+
+- Drag task onto project updates `ProjectId`.
+- Drag to root clears `ProjectId`.
+- Running task drag does not break session.
+- Tree refresh reflects new structure.
+
+**Risks:** Medium — WPF tree DnD complexity.
+
+---
+
+## Slice 7 — Context Panel
+
+**Goal:** Full Context Panel per ADR Decisions 12–13.
+
+**Scope:** `ContextPanelViewModel` — `ContextText` edit, deadline edit, rollup display, conversion context menus.
+
+**Domain Impact:** Uses `ProjectService`, `EffortService`.
+
+**UI Impact:** Right panel functional.
+
+**Acceptance Criteria:**
+
+- Selecting project or task-with-project shows context, deadline, rollup.
+- Standalone task hides panel.
+- Context edits persist independently of task ops.
+- Convert to Project/Task available from context menu.
+
+**Risks:** Low.
+
+---
+
+## Slice 8 — Deadline & Estimate Visibility
+
+**Goal:** Surface estimates and deadlines in tree and panel.
+
+**Scope:** Tree node templates show spent/estimate suffixes; inline estimate edit; deadline picker in Context Panel.
+
+**Domain Impact:** Estimate CRUD on `TaskService`.
+
+**UI Impact:** Tree + panel enrichment.
+
+**Acceptance Criteria:**
+
+- Task shows `18h / 12h` style when estimate set.
+- Project shows rollup `125h / 200h`.
+- Deadline visible on project in Context Panel.
+- Tasks have no deadline field.
+
+**Risks:** Low.
+
+---
+
+## Slice 9 — Running Task Bar
+
+**Goal:** Execution chrome per ADR Decision 7.
+
+**Scope:** Migrate timer + Done/Waiting/Pause from `FocusViewModel` to `RunningTaskBarViewModel`; bind to `GetRunningTask()` + session.
+
+**Domain Impact:** None — uses existing `TaskService` / `WorkExecutionService`.
+
+**UI Impact:** Bottom bar fully functional.
+
+**Acceptance Criteria:**
+
+- Only one Running task shown.
+- Start task B auto-pauses A (no confirmation).
+- Done/Waiting/Pause work from bar.
+- Timer displays session active duration.
+
+**Risks:** Medium — session/task binding regression.
+
+---
+
+## Slice 10 — Quick Capture Integration
+
+**Goal:** Always-available capture per Decision 15.
+
+**Scope:** Capture input in Work Tree header; global hotkey; `CaptureToInbox` with `Parent=Root`.
+
+**Domain Impact:** None — BR-11 already enforced.
+
+**UI Impact:** Capture input always visible.
+
+**Acceptance Criteria:**
+
+- Enter creates Inbox task at root.
+- Running task unchanged after capture.
+- Hotkey focuses capture from any view.
+
+**Risks:** Low.
+
+---
+
+## Slice 11 — Navigation Cleanup & Secondary Views
+
+**Goal:** Demote obsolete primary nav.
+
+**Scope:** Remove or secondary-link Focus, Tasks, Projects tabs; Settings + Analytics secondary; update README/V2Welcome.
+
+**Domain Impact:** None.
+
+**UI Impact:** Nav finalization.
+
+**Acceptance Criteria:**
+
+- Primary nav: Work Tree + Settings.
+- No duplicate task/project management as co-primary surfaces.
+- `FocusView` removed or compact-only overlay.
+
+**Risks:** Medium — user habit disruption.
+
+---
+
+## Slice 12 — Polish & Validation
+
+**Goal:** Production-ready ADR-0007 workspace.
+
+**Scope:** Compact overlay mode, visual polish, dead code removal, full test pass, migration upgrade path, success criteria walkthrough.
+
+**Domain Impact:** None.
+
+**UI Impact:** Polish.
+
+**Acceptance Criteria:**
+
+- `dotnet test` green.
+- Upgrade from pre-012 DB succeeds.
+- Manual walkthrough: capture → organize (drag) → convert → start → switch → complete → rollup correct.
+- No forbidden concepts in UI (milestones, snapshots, queue, momentum).
+
+**Risks:** Medium — integration regressions.
+
+---
+
+### Dependency Order
+
+```text
+Slice 1 (artifacts)
+    ↓
+Slice 2 → Slice 3 → Slice 4
+    ↓         ↓
+Slice 5 ──────┴── Slice 6, 7 (parallel after Slice 5)
+    ↓
+Slice 8, 9, 10 (parallel)
+    ↓
+Slice 11 → Slice 12
+```
+
+**Critical path:** 1 → 2 → 5 → 9 → 12
+
+---
+
+### Slice Summary
+
+| Slice | Goal | Domain | UI | Risk |
+|---|---|---|---|---|
+| 1 | Artifact updates | Doc | — | Low |
+| 2 | WorkItem foundation | Major | — | Medium |
+| 3 | Task↔Project conversion | Major | — | Medium |
+| 4 | Tree state persistence | — | Minor | Low |
+| 5 | Work Tree UI foundation | — | **Major** | High |
+| 6 | Drag & drop | Minor | Major | Medium |
+| 7 | Context Panel | Minor | Major | Low |
+| 8 | Deadline & estimate visibility | Minor | Major | Low |
+| 9 | Running Task Bar | — | Major | Medium |
+| 10 | Quick Capture | — | Major | Low |
+| 11 | Navigation cleanup | — | Major | Medium |
+| 12 | Polish & validation | — | Minor | Medium |
+
+---
+
+# Current State Assessment (Codebase)
+
+## Technology Stack
 
 | Layer | Technology | Status |
 |---|---|---|
 | Runtime | .NET 10 (`net10.0-windows`), WPF | Stable |
 | UI pattern | MVVM (`ObservableObject`, `RelayCommand`) | Stable |
 | Persistence | SQLite via `Microsoft.Data.Sqlite` | Stable |
-| Schema evolution | Versioned migrations 001–007 + backup + validation | Stable |
-| Tests | xUnit — 12 test files | Good coverage of draft V2 features |
+| Schema evolution | Migrations 001–011 + backup + validation | Stable |
+| Tests | xUnit | Good coverage |
 | Composition | `AppServices.cs` single root | Stable |
 
-## 1.2 What Exists Today
+## Completed Alignment (DOMAIN.md v2.1)
 
-### Session engine (V1 core — supporting capability)
-
-`SessionService` provides stopwatch/countdown sessions, pause-aware `WorkInterval` duration, crash recovery, daily totals, and idle auto-pause. This is a **valuable implementation asset** but a **supporting capability** per DOMAIN.md §7.1 and approved design decision #2 (Option B).
-
-Task execution (`TaskService`) is the primary authority. Sessions follow Running tasks — not the reverse. The session engine should be retained and simplified, not extended with new session-centric features (parallel paused sessions, resume-from-session queues).
-
-Sessions are linked to tasks via `WorkSession.TaskId` (migration 006). Legacy `TaskName` column remains for backfill compatibility.
-
-### Domain layer (V2-draft — partially misaligned)
-
-| Component | Files | State |
-|---|---|---|
-| `WorkTask` | `Models/WorkTask.cs` | Exists; has task-level context fields + `MilestoneId` |
-| `Project` | `Models/Project.cs` | Exists; has optional `Deadline` |
-| `Milestone` | `Models/Milestone.cs` + store + service | **Conflicts with DOMAIN.md** |
-| `ContextSnapshot` | Model + store + service | **Conflicts with DOMAIN.md** |
-| `WorkingContext` | `Models/WorkingContext.cs` | Task-level; **conflicts** |
-| `ResumeQueueEntry` | Model + `ResumeQueueService` | **Conflicts with DOMAIN.md** |
-| `TaskSwitchEvent` | Model + store | **Conflicts with DOMAIN.md** |
-| `TaskStatus` | `Active, Blocked, Done, Cancelled` | **Divergent** from DOMAIN.md |
-| `TaskOrigin` | — | **Missing** |
-| `ProjectContext` | — | **Not needed** — use `ContextText` on `Project` |
-
-### Services
-
-| Service | Alignment | Notes |
-|---|---|---|
-| `SessionService` | ✅ Keep (supporting) | Timer engine; simplify over time, do not extend |
-| `TaskService` | ⚠️ Modify | CRUD works; wrong statuses, task context, milestone coupling; add Quick Capture + switching |
-| `ProjectService` | ⚠️ Modify | CRUD works; add `ContextText`; simplify delete |
-| `WorkExecutionService` | ⚠️ Modify | Orchestration is right pattern; snapshot/context capture is wrong |
-| `MilestoneService` | ❌ Remove | Not in DOMAIN.md |
-| `ContextSnapshotService` | ❌ Remove | Not in DOMAIN.md |
-| `ResumeQueueService` | ❌ Remove | Not in DOMAIN.md |
-| `AnalyticsService` | ⚠️ Simplify | Keep focus/heatmap/streak; remove momentum + switch metrics |
-| `SettingsService`, `TrayService`, etc. | ✅ Keep | Desktop UX |
-
-### Database (migrations 001–007)
-
-```
-SchemaVersion
-WorkSession (+ TaskId)
-WorkInterval
-AppSetting
-Task (+ task-level context columns, MilestoneId)
-Project (+ Deadline)
-Milestone                    ← remove
-ContextSnapshot              ← remove
-TaskSwitchEvent              ← remove
-```
-
-Missing: `Project.ContextText`, `Task.Origin`, `Task.CompletedAt`, `Task.Status` values for Inbox/Ready/Running/Waiting.
-
-### UI (navigation shell exists)
-
-| Area | View | Current behavior | Domain alignment |
-|---|---|---|---|
-| Focus | `FocusView` | Timer, task context panel, resume queue, start panel | Session UI good; context/queue wrong |
-| Tasks | `TasksView` | Task CRUD, task context, snapshots, milestones | Needs lifecycle + removal of task context |
-| Projects | `ProjectsView` | Milestones, momentum chart, task list | Needs project context panel; remove milestones/momentum |
-| Analytics | `AnalyticsView` | Streak, heatmap, momentum, switch metrics | Keep streak/heatmap; remove momentum/switches |
-| Modal | `ContextCaptureDialog` | Prompts on pause/switch/finish | **Remove** — violates BR-4 |
-| Other | History, Settings, Recovery, V2Welcome | Functional | Update welcome copy after realignment |
-
-### Test coverage
-
-Tests exist for all draft V2 services including milestones, snapshots, resume queue, and analytics. Tests for removed features will be deleted or rewritten during realignment slices.
-
-## 1.3 Current vs DOMAIN.md — At a Glance
-
-```
-DOMAIN.md target                    Current codebase
-─────────────────                   ─────────────────
-Task-first execution          →     Session-first execution
-Single Running task           →     Multiple Active tasks + paused sessions
-Context on Project            →     Context on Task + Snapshots
-Inbox/Ready/Running/Waiting   →     Active/Blocked/Done/Cancelled
-No milestones                 →     Full milestone stack
-No resume queue               →     ResumeQueueService + Focus panel
-Minimal analytics             →     + Project Momentum + Switch Metrics
-Planned/Unplanned origin      →     Not implemented
-Project ContextText           →     Not implemented
-Quick Capture (first-class)   →     Partial (task create only; no hotkey/non-disrupting capture)
-```
-
----
-
-# 2. Domain Alignment Analysis
-
-## 2.1 Aligned (keep as-is or minor adaptation)
-
-| DOMAIN.md concept | Codebase evidence | Action |
-|---|---|---|
-| Single-user local desktop | WPF + SQLite, no auth | Keep |
-| Task as execution unit | `WorkTask`, `TaskService`, task-linked sessions | Keep; extend lifecycle |
-| Project optional | `Task.ProjectId` nullable | Keep |
-| Work session on task | `WorkSession.TaskId`, migration 006 | Keep |
-| Time tracking supporting | `SessionService`, intervals, idle pause | Keep |
-| Navigation areas | `ShellArea`: Focus, Tasks, Projects, Analytics | Keep structure |
-| Global search | `GlobalSearchViewModel` | Keep; search task title (+ project context later) |
-| Focus time / daily summary | `AnalyticsService.GetDailySummary` | Keep |
-| Activity heatmap | `AnalyticsService.GetActivityHeatmap` | Keep |
-| Productive streak | `AnalyticsService.GetStreak` | Keep |
-| Session history | `HistoryWindow` | Keep |
-| Schema migrations | Migrations 001–007 | Keep; add realignment migrations |
-| Project delete detaches tasks | `ProjectService.Delete` | Keep behavior |
-
-## 2.2 Divergent (must change)
-
-| DOMAIN.md rule | Current violation | Required change |
-|---|---|---|
-| BR-1/BR-2: Single Running task | Task status never `Running`; multiple Active tasks with paused sessions | Add `Running` status; enforce in `TaskService.StartTask()` |
-| BR-3: Context on Project | Five context fields on `Task` table | Add `ContextText` on `Project`; remove task context columns |
-| BR-4: Context independent of lifecycle | `ContextCaptureDialog` on pause/switch/finish; auto snapshots | Remove lifecycle hooks and dialog |
-| BR-6: Origin visibility only | No `TaskOrigin` | Add enum column |
-| §4.1: Six task states | Four states (`Active/Blocked`) | Migrate to `Inbox/Ready/Running/Waiting/Done/Cancelled` |
-| §8: No milestones | Full milestone stack | Remove |
-| §8: No context snapshots | `ContextSnapshot` table + service | Remove |
-| §8: No resume queue | `ResumeQueueService` + Focus panel | Remove; replace with task status lists |
-| §7.2: No momentum/switch metrics | Implemented in analytics | Remove |
-| §3.3: `CompletedAt` | Uses `UpdatedAt` proxy | Add column |
-
-## 2.3 Inverted architecture (root cause)
-
-The draft V2 treated **sessions** as the execution primitive and **tasks** as metadata attached to sessions. DOMAIN.md treats **tasks** as the execution primitive with sessions as a supporting time record.
-
-```
-Current (wrong):                    Target (DOMAIN.md):
-
-SessionService                      TaskService.StartTask()
-  └─ one running session              └─ one Running task (BR-1)
-  └─ multiple paused sessions           └─ triggers session start/pause
-       └─ ResumeQueue derived                └─ previous task → Ready (default)
-WorkExecutionService                    WorkExecutionService
-  └─ preserves task context                 └─ coordinates task + session
-  └─ captures snapshots                     └─ no context side effects
-                                            Quick Capture → Inbox only (BR-11)
-```
-
-The realignment centers on making `TaskService` the authority for execution state, with `WorkExecutionService` coordinating sessions as a side effect.
-
----
-
-# 3. Feature Retention Decisions
-
-| Feature | Decision | Rationale |
-|---|---|---|
-| **Session engine** | ✅ Keep (supporting) | DOMAIN.md §7.1 Option B; retain V1 engine, simplify — do not extend |
-| **Task CRUD** | ✅ Keep | Core domain; refactor status model |
-| **Project CRUD** | ✅ Keep | Optional grouping per DOMAIN.md §3.1 |
-| **WorkSession → TaskId** | ✅ Keep | Already implemented (M006) |
-| **Navigation shell** | ✅ Keep | Focus/Tasks/Projects/Analytics maps to DOMAIN.md §11.5 |
-| **Global search** | ✅ Keep | Process 3/4 entry point; retarget to task title + `ContextText` |
-| **Quick Capture** | ✅ Keep + elevate | First-class capability (decision #3); `CaptureToInbox` without disturbing Running task |
-| **Start work from task** | ✅ Keep | Process 3; wire to single Running task |
-| **Daily focus time** | ✅ Keep | DOMAIN.md §7.2 in-scope |
-| **Session history** | ✅ Keep | DOMAIN.md §7.2 in-scope |
-| **Activity heatmap** | ✅ Keep | DOMAIN.md §7.2 in-scope |
-| **Productive streak** | ✅ Keep | DOMAIN.md §7.2 in-scope |
-| **Per-task focus breakdown** | ✅ Keep | Supports personal awareness |
-| **Project optional deadline** | ⚠️ Keep as optional metadata | DOMAIN.md allows optional project attributes; not a planning driver — hide or de-emphasize in UI |
-| **Task notes** | ⚠️ Keep (optional) | DOMAIN.md §3.3 allows optional notes; not context replacement |
-| **Crash recovery** | ✅ Keep | Desktop reliability |
-| **Idle auto-pause** | ✅ Keep | Session support |
-| **V1 data backfill** | ✅ Keep | Migration 006 pattern; extend for status remap |
-
----
-
-# 4. Feature Removal / Simplification Decisions
-
-| Feature | Decision | Rationale | Removal scope |
-|---|---|---|---|
-| **Milestones** | ❌ Remove | DOMAIN.md §8 | Model, store, service, migration table, UI, tests, `Task.MilestoneId` |
-| **Milestone progress** | ❌ Remove | Derived from milestones | `MilestoneProgress`, UI progress bars |
-| **Subtasks** | — Not built | DOMAIN.md §8 | No action needed |
-| **Context Snapshots** | ❌ Remove | DOMAIN.md §8; replaced by Project Context | Table, model, store, service, UI history, tests |
-| **Task-level context fields** | ❌ Remove | BR-3; context is project-scoped | `CurrentStatus`, `LastProgress`, `NextAction`, `Blocker` on Task; `WorkingContext` model |
-| **Context capture on lifecycle** | ❌ Remove | BR-4 | `ContextCaptureDialog`, `WorkExecutionService.PreserveContext`, ViewModel tests |
-| **Resume Queue** | ❌ Remove | DOMAIN.md §8 | `ResumeQueueService`, `ResumeQueueEntry`, Focus panel, tests |
-| **Project Momentum** | ❌ Remove | DOMAIN.md §7.2 out-of-scope | `GetProjectMomentum`, Analytics/Projects UI, `ProjectMomentumViewModels` |
-| **Context Switch Metrics** | ❌ Remove | DOMAIN.md §7.2 out-of-scope | `TaskSwitchEvent` table, store, recording in `SessionService`, Analytics UI |
-| **Resume Queue UI labels** | ❌ Remove | Cosmetic "Ready"/"Waiting" on queue items | Replaced by real task statuses |
-| **V2 Welcome (draft copy)** | ⚠️ Rewrite | References milestones, snapshots, queue, momentum | Update after realignment |
-| **README (draft copy)** | ⚠️ Rewrite | Same issue | Update after realignment |
-
-### Simplification: Focus view "Waiting" panel
-
-The current Focus view shows a **resume queue** of paused sessions. DOMAIN.md does not define this.
-
-**Replace with:** A compact list of **Ready** and **Waiting** tasks (by task status), clickable to start work. Paused sessions remain an implementation detail of the session engine, not a user-facing queue concept.
-
-### Simplification: Parallel paused sessions
-
-The session engine allows multiple paused in-progress sessions. DOMAIN.md requires only one Running task. After realignment:
-
-- Starting task B pauses task A's session AND sets task A to **Ready** by default (or **Waiting** if user explicitly marks blocked)
-- Quick capture to Inbox does **not** change the Running task or its session
-- Orphaned paused sessions without a Running task should be completable or discardable
-- Long term: phase out multiple paused sessions across tasks; session engine serves the Running task only
-
----
-
-# 5. Missing Capability Analysis
-
-| DOMAIN.md capability | Current state | Gap |
-|---|---|---|
-| **Project ContextText** | Not implemented | Add `ContextText` + `ContextUpdatedAt` on `Project`; editable in project detail |
-| **Task lifecycle (6 states)** | 4 wrong states | Enum remap + migration + UI filters/transitions |
-| **Single Running task** | Session-only enforcement | `TaskService.StartTask` + `WorkExecutionService` coordination |
-| **Task switching behavior** | Implicit Ready only | Default → Ready; explicit action → Waiting; preserve Waiting on re-switch |
-| **TaskOrigin** | Missing | Enum + column + UI badge/filter |
-| **CompletedAt** | Missing | Column; set on Done transition |
-| **Quick Capture (first-class)** | Basic task create | `CaptureToInbox` API; global hotkey; non-disrupting capture while Running |
-| **Inbox capture flow** | Tasks default to Active | Default new tasks to Inbox; add Inbox filter/view |
-| **Organize work (Process 2)** | Partial | Inbox → Ready transitions; project assign/detach |
-| **Project context on execute (Process 3)** | Shows task context | Show project `ContextText` when Running task has ProjectId |
-| **Context edit independent (Process 7)** | N/A | Always-editable `ContextText` on project detail |
-| **Search includes project context** | Searches task context fields | Retarget search to title + `ContextText` |
-
-### Not missing (already sufficient)
-
-- Session start/stop/pause from Focus view
-- Task creation without project
-- Project task grouping
-- Basic analytics (focus, heatmap, streak)
-- Schema migration infrastructure
-
----
-
-# 6. Recommended Target Architecture
-
-## 6.0 Session Engine Position (Approved Decision #2)
-
-Before proceeding with implementation, the plan evaluates three positions for the session engine:
-
-| Option | Description | Assessment |
-|---|---|---|
-| **A — Core capability** | Task execution and time tracking are equally important | **Rejected.** Positions the timer as co-equal with execution. Jetset is not a Pomodoro app. |
-| **B — Supporting capability** | Task execution is primary; time tracking is secondary | **Selected.** Matches DOMAIN.md §7.1, success criterion #7, and product vision. |
-| **C — Substantially simplified** | Strip down or replace the session engine | **Partially accepted** as a long-term direction within Option B. |
-
-### Decision: Option B with gradual simplification
-
-**Rationale:**
-
-- DOMAIN.md defines task execution as the center; time tracking is §7.1 supporting capability
-- Success criterion #7: "Track focused work time as a secondary benefit, not a primary workflow"
-- The V1 session engine is a proven implementation asset (intervals, idle pause, recovery) — worth retaining
-- The draft V2 over-indexed on session-centric patterns (parallel paused sessions, resume queue, session-driven switching) that conflict with task-first execution
-
-**Implementation implications:**
-
-| Aspect | Direction |
+| Capability | Status |
 |---|---|
-| **Authority** | `TaskService` owns execution state. Sessions follow Running tasks. |
-| **Retain** | Interval-based duration, stopwatch/countdown, idle auto-pause, crash recovery, history |
-| **Simplify** | Phase out parallel paused sessions across tasks; one in-progress session per Running task |
-| **Do not extend** | No new session-centric features (resume queue, switch event recording, session-driven task status) |
-| **UI priority** | Focus view shows Running task first, timer second. Quick Capture is equally prominent. |
-| **WorkExecutionService** | Thin coordinator: `StartTask` → session side effect. Not a peer domain authority. |
+| Six-state task lifecycle | ✅ Migrations 008 |
+| Single Running task | ✅ `TaskService.StartTask` |
+| `CaptureToInbox` (BR-11) | ✅ |
+| Project `ContextText` | ✅ Migrations 009–010 |
+| Schema cleanup (milestones, snapshots, switch events) | ✅ Migration 011 |
+| Milestones/snapshots/queue removed from `AppServices` | ✅ |
+| Analytics simplified | ✅ |
 
-## 6.1 Domain model (target)
+## Remaining Gaps (ADR-0007)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Application                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │
-│  │ TaskService │  │ProjectService│  │ SessionService │  │
-│  │ (PRIMARY —  │  │ (+ContextText)│  │ (SUPPORTING —  │  │
-│  │  execution) │  │              │  │  time tracking)│  │
-│  └──────┬──────┘  └──────┬───────┘  └───────┬────────┘  │
-│         │                │                   │           │
-│         └────────┬───────┴───────────────────┘           │
-│                  ▼                                       │
-│         WorkExecutionService                             │
-│         (coordinates task status + session)              │
-│                  │                                       │
-│         AnalyticsService (read-only, simplified)       │
-└─────────────────────────────────────────────────────────┘
-```
+| Capability | Status |
+|---|---|
+| Work Tree Workspace UI | ❌ |
+| Unified WorkItem model (conceptual) | ❌ |
+| Task↔Project conversion | ❌ |
+| Task estimate | ❌ |
+| Effort rollup | ❌ |
+| Drag-drop membership | ❌ |
+| Tree expand/collapse persistence | ❌ |
+| Context Panel layout | ❌ |
+| Running Task Bar | ❌ (partially in FocusView) |
+| Work Tree as default nav | ❌ |
 
-## 6.2 Aggregate boundaries (from DOMAIN.md §11.1)
-
-| Aggregate | Root | Store | Key invariant |
-|---|---|---|---|
-| Task | `WorkTask` | `ITaskStore` | At most one `Running`; sessions align with Running |
-| Project | `Project` | `IProjectStore` | `ContextText` on project; context edits independent of tasks |
-| Work Session | `WorkSession` | `ISessionStore` | Active only while parent task is Running |
-
-## 6.3 Target schema
+## Target Schema (after Slice 2)
 
 ```sql
--- Existing (retained, modified)
-Project (Id, Name, ContextText, ContextUpdatedAt,
+-- Existing (retained)
+Project (Id, Name, Deadline, ContextText, ContextUpdatedAt,
          CreatedAt, UpdatedAt)
-  -- Deadline: keep column, de-emphasize in UI
 
 Task (Id, Title, Status, Origin, ProjectId NULL,
-      CreatedAt, CompletedAt NULL, UpdatedAt, Notes NULL)
-  -- Removed: CurrentStatus, LastProgress, NextAction, Blocker,
-  --           MilestoneId, LastWorkedAt (optional: keep LastWorkedAt for sort)
+      CreatedAt, CompletedAt NULL, UpdatedAt, Notes NULL,
+      EstimateMinutes NULL)   -- NEW in migration 012
 
-WorkSession (unchanged from M006)
+WorkSession (unchanged)
 WorkInterval (unchanged)
-AppSetting (unchanged)
+AppSetting (unchanged; may store tree expand state)
 SchemaVersion (unchanged)
-
--- Removed tables
--- Milestone, ContextSnapshot, TaskSwitchEvent
 ```
 
-## 6.4 Target enums
-
-```csharp
-public enum TaskStatus
-{
-    Inbox = 0,
-    Ready = 1,
-    Running = 2,
-    Waiting = 3,
-    Done = 4,
-    Cancelled = 5
-}
-
-public enum TaskOrigin
-{
-    Unplanned = 0,
-    Planned = 1
-}
-```
-
-## 6.5 Service responsibilities (target)
+## Target Service Layer
 
 | Service | Responsibility |
 |---|---|
-| `TaskService` | CRUD, search, **`CaptureToInbox`** (BR-11), status transitions, **`StartTask`/`StopTask`** with BR-1/BR-2 and switching behavior, `CompletedAt` |
-| `ProjectService` | Project CRUD, `ContextText` get/update, delete-detaches-tasks |
-| `SessionService` | Timer mechanics only (supporting); no task-switch event recording |
-| `WorkExecutionService` | `StartWork` → `TaskService.StartTask` + session side effect; `CaptureToInbox` does not touch sessions |
-| `AnalyticsService` | `GetDailySummary`, `GetFocusTime`, `GetActivityHeatmap`, `GetStreak`, `GetFocusTimeByTask` |
-
-**Removed services:** `MilestoneService`, `ContextSnapshotService`, `ResumeQueueService`
-
-## 6.6 UI structure (target)
-
-| Area | Primary actions | Key UI elements |
-|---|---|---|
-| **Focus** | Execute, pause, finish, switch task, **quick capture** | Running task indicator; timer (secondary); `ContextText` sidebar; Ready/Waiting picker; global hotkey capture |
-| **Tasks** | Capture, organize, transition status | Inbox filter; status badges; quick-add; assign/detach project; start work button |
-| **Projects** | Group tasks, edit context | Project list; **`ContextText` editor**; task list (no milestones) |
-| **Analytics** | Personal awareness | Streak, heatmap, daily focus, per-task breakdown |
-
-**Removed UI:** milestone lists, snapshot history, context capture dialog, resume queue panel, momentum charts, switch metrics section.
-
-## 6.7 Key orchestration flows (target)
-
-### Quick Capture (does not switch execution)
-
-```
-User triggers Quick Capture (hotkey / one-click)
-  │
-  └─ TaskService.CaptureToInbox(title)
-       ├─ creates task: Status=Inbox, Origin=Unplanned
-       └─ Running task (if any) is UNCHANGED (BR-11)
-```
-
-### Start / Switch Work
-
-```
-User clicks "Start" on Task B
-  │
-  ├─ TaskService.StartTask(B, leavingStatus: Ready)    ← default
-  │    ├─ if Task A is Running → A.Status = Ready
-  │    └─ B.Status = Running
-  │
-  └─ WorkExecutionService
-       ├─ pause session on A
-       └─ start/resume session on B
-
-User clicks "Switch and mark waiting" on Task B
-  │
-  ├─ TaskService.StartTask(B, leavingStatus: Waiting)  ← explicit
-  │    └─ Task A.Status = Waiting
-  │
-  └─ (same session coordination)
-```
-
-### Edit project context
-
-```
-User edits ContextText on project
-  │
-  └─ ProjectService.UpdateContextText(projectId, text)
-       └─ no task or session side effects
-```
+| `TaskService` | CRUD, search, `CaptureToInbox`, status transitions, `StartTask`/`StopTask`, estimate CRUD |
+| `ProjectService` | Project CRUD, `ContextText`, deadline, delete-detaches-tasks |
+| `SessionService` | Timer mechanics (supporting) |
+| `WorkExecutionService` | Coordinates task status + session |
+| `WorkTreeService` | **NEW** — tree queries, root items, children |
+| `WorkItemConversionService` | **NEW** — Task↔Project conversion |
+| `EffortService` | **NEW** — spent calculation, project rollup |
+| `AnalyticsService` | Personal metrics (read-only, simplified) |
 
 ---
 
-# 7. Migration Strategy
+# Risks and Trade-offs
 
-## 7.1 Approach
-
-Continue the existing versioned migration pattern (001–007). Add **realignment migrations** 008+ that:
-
-1. Add new structures before removing old ones
-2. Backfill data with explicit mapping rules
-3. Drop deprecated tables/columns only after code no longer references them
-4. Run `MigrationValidationService` checks after each destructive step
-
-**Do not** rewrite migrations 001–007 — they reflect shipped history. New migrations correct the domain.
-
-## 7.2 Status mapping (migration 008)
-
-| Old `TaskStatus` | New `TaskStatus` | Rule |
-|---|---|---|
-| `Active` (0) | `Ready` (1) | Default mapping |
-| `Active` with paused in-progress session | `Ready` (1) | Session state preserved separately |
-| `Active` with running session | `Running` (2) | At most one; if multiple, keep newest session's task as Running, others → Ready |
-| `Blocked` (1) | `Waiting` (3) | Direct map |
-| `Done` (2) | `Done` (4) | Set `CompletedAt` = `UpdatedAt` |
-| `Cancelled` (3) | `Cancelled` (5) | Direct map |
-
-New quick-capture tasks default to `Inbox` (0) after migration.
-
-## 7.3 Context migration (migration 009)
-
-For each project with tasks that have task-level context data:
-
-1. Add `ContextText` and `ContextUpdatedAt` columns to `Project`
-2. Concatenate task-level context from the most recently updated task in that project into `ContextText` (best-effort; user may edit after migration)
-3. Drop task-level context columns in migration 010
-
-Standalone tasks lose context fields (DOMAIN.md §3.1 rule 9: resumption relies on title/status).
-
-## 7.4 Milestone migration (migration 010)
-
-1. Set `Task.MilestoneId` to NULL for all tasks
-2. Drop `Milestone` table
-3. Drop `Task.MilestoneId` column
-
-Tasks remain on their projects. No data loss for tasks themselves.
-
-## 7.5 Snapshot and switch event migration (migration 011)
-
-1. Drop `ContextSnapshot` table (historical snapshots are not in DOMAIN.md; acceptable data loss with pre-migration backup)
-2. Drop `TaskSwitchEvent` table
-3. Stop recording switch events in `SessionService`
-
-## 7.6 Code migration order
-
-```
-Phase A: Add new (ContextText on Project, new statuses, Origin, CompletedAt)
-Phase B: Switch code to new model (services, UI)
-Phase C: Remove old code (milestone, snapshot, queue, task context)
-Phase D: Drop old schema (migrations 010–011)
-Phase E: Update docs (README, welcome dialog)
-```
-
-## 7.7 Backward compatibility
-
-- Pre-migration DB backup already handled by `DatabaseBackupService`
-- `WorkSession.TaskName` retained until verified; drop in final polish slice
-- V1 users upgrading through 001–007 then 008+ get seamless transition
-- No export/import required
-
----
-
-# 8. Incremental Delivery Roadmap
-
-The roadmap is ordered to **remove conflicting concepts early** (reducing maintenance burden) while **adding missing domain features** in dependency order.
-
-```
-Wave 0 ──► Stop the bleeding (remove draft-only features from active development)
-Wave 1 ──► Domain core (task lifecycle + single Running task + Quick Capture)
-Wave 2 ──► Remove conflicting features (milestones, snapshots, queue, switch metrics)
-Wave 3 ──► Project ContextText (simple free-form context on project)
-Wave 4 ──► Execution alignment + UI realignment (task ↔ session, switching, views)
-Wave 5 ──► Analytics simplification
-Wave 6 ──► Schema cleanup + polish
-```
-
-Each wave delivers a coherent, testable increment. Waves 1–3 are the critical path.
-
----
-
-# 9. Slice / Wave Plan
-
----
-
-## Wave 0: Freeze Draft Direction
-
-**Goal:** Prevent further drift toward project-management features. No user-visible changes.
-
-| Slice | Work | Acceptance |
-|---|---|---|
-| **R-00** | Mark old plan superseded (this document). Add `// DOMAIN-REALIGNMENT` comments on files slated for removal. No code behavior changes. | Team/agents reference DOMAIN.md + this plan only |
-
----
-
-## Wave 1: Task Lifecycle Realignment
-
-**Goal:** Replace task status model with DOMAIN.md six-state lifecycle. Establish single Running task invariant.
-
-| Slice | Scope | DB | Backend | UI | Tests |
-|---|---|---|---|---|---|
-| **R-01** | New `TaskStatus` enum values; add `Origin`, `CompletedAt` columns; migration 008 with status remap; `StartTask` with switching behavior (`leavingStatus` param, default `Ready`) | `ALTER Task` add columns; remap Status integers | Update `TaskStatusRules`; `TaskService.ChangeStatus`, `TaskService.StartTask` (BR-1/BR-2 + switching), `TaskService.CompleteTask`; remove milestone references | Status picker shows 6 states; Inbox filter on Tasks view | Rewrite `TaskServiceTests` for lifecycle + single Running + switching |
-| **R-02** | Default capture to Inbox; Planned/Unplanned origin; **`CaptureToInbox`** API (BR-11) | None (columns from R-01) | `TaskService.CaptureToInbox(title)` — creates Inbox task, does not change Running task; `Create` defaults: `Inbox`, `Unplanned` | Origin badge on task list; optional filter | Tests: capture does not disturb Running task |
-| **R-02b** | Quick Capture UX | None | Wire `CaptureToInbox` to shell | Global hotkey; keyboard-first capture from any view; one-click Inbox add on Focus/Tasks; minimal dialog (title only) | Manual: capture while Running task stays Running |
-
-**Wave 1 outcome:** Tasks use correct lifecycle. Only one Running task. Quick Capture works without breaking focus.
-
-**Dependencies:** None beyond current codebase.
-
----
-
-## Wave 1b: Quick Capture UX (can overlap Wave 2)
-
-**Goal:** Make Quick Capture a visible, first-class workflow.
-
-| Slice | Scope | Acceptance |
-|---|---|---|
-| **R-02b** | (see Wave 1 above) | User can capture to Inbox via hotkey from any view without losing Running task |
-
-*Note: R-02b is listed in Wave 1 for dependency clarity; may ship alongside Wave 2 removals.*
-
----
-
-## Wave 2: Remove Conflicting Features (Backend)
-
-**Goal:** Delete domain concepts that conflict with DOMAIN.md before building replacements.
-
-| Slice | Scope | Remove | Keep |
-|---|---|---|---|
-| **R-03** | Remove milestones | `MilestoneService`, `IMilestoneStore`, `MilestoneStore`, `InMemoryMilestoneStore`, `Milestone` model, `MilestoneProgress`, `MilestoneListItemViewModel`, milestone UI, `MilestoneServiceTests`, `Task.MilestoneId` usage | Project and task assignment |
-| **R-04** | Remove context snapshots + task context | `ContextSnapshotService`, stores, model, `WorkingContext`, task context columns usage, `ContextCaptureDialog`, `ContextCaptureViewModel`, `PreserveContext` in `WorkExecutionService`, snapshot UI, related tests | `Task.Notes` (optional simple notes) |
-| **R-05** | Remove resume queue + switch metrics | `ResumeQueueService`, `ResumeQueueEntry`, `ResumeQueueItemViewModel`, `TaskSwitchEvent` store/model, switch recording in `SessionService`, `ResumeQueueServiceTests` | Session engine pause/switch mechanics |
-
-**Wave 2 outcome:** Codebase no longer contains removed DOMAIN.md concepts. Focus view resume queue panel is stubbed/empty until Wave 4.
-
-**Note:** R-03 through R-05 can partially overlap if merge conflicts are managed. R-04 depends on R-03 completing milestone decoupling in `TaskService`.
-
----
-
-## Wave 3: Project ContextText
-
-**Goal:** Implement context preservation — simple free-form note on project, independent of task lifecycle.
-
-| Slice | Scope | DB | Backend | UI | Tests |
-|---|---|---|---|---|---|
-| **R-06** | `ContextText` on Project | Migration 009: add `ContextText`, `ContextUpdatedAt` to `Project`; migration 010: concatenate task context → `ContextText`; drop task context columns | `ProjectService.GetContextText`, `UpdateContextText` | Project detail: single always-editable text area | Context CRUD tests |
-| **R-07** | Context on execute | None | `FocusViewModel` loads `ContextText` when Running task has ProjectId | Focus view: read-only `ContextText` display (link to edit on project) | Integration test: start task → context displayed |
-
-**Wave 3 outcome:** Context preservation works per DOMAIN.md. No structured fields. No lifecycle-triggered capture.
-
----
-
-## Wave 4: Execution Alignment
-
-**Goal:** Unify task Running status with session state. Task switching with explicit Ready/Waiting behavior.
-
-| Slice | Scope | Backend | UI | Tests |
-|---|---|---|---|---|
-| **R-08** | Refactor `WorkExecutionService` | All start/pause/finish/switch flows through `TaskService.StartTask` / `StopTask`; `leavingStatus` param (default Ready, explicit Waiting); session follows task; no context side effects | — | Rewrite `WorkExecutionServiceTests` incl. switching scenarios |
-| **R-09** | Focus view realignment | — | Remove resume queue panel; add Ready/Waiting task list; single Running indicator; **Quick Capture** input; "Switch and mark waiting" action; remove task context panel | Manual + VM tests |
-| **R-10** | Tasks view realignment | — | Remove snapshot history, task context fields, milestone picker; add Inbox/Ready/Waiting/Done filters; start work button uses `StartTask` | — |
-| **R-11** | Projects view realignment | — | Remove milestones section and momentum chart; task list + `ContextText` editor is primary content | — |
-| **R-12** | Search realignment | `TaskService.Search` includes `ContextText` | Search results show task status + project name | Search tests |
-
-**Wave 4 outcome:** Full execution workflow matches DOMAIN.md Processes 1–7.
-
----
-
-## Wave 5: Analytics Simplification
-
-**Goal:** Keep personal productivity metrics; remove management-style reporting.
-
-| Slice | Scope | Remove | Keep |
-|---|---|---|---|
-| **R-13** | Simplify `AnalyticsService` | `GetProjectMomentum`, `GetSwitchMetrics`, `TaskSwitchEvent` dependencies | `GetDailySummary`, `GetFocusTime`, `GetActivityHeatmap`, `GetStreak`, `GetFocusTimeByTask` |
-| **R-14** | Simplify Analytics UI | Momentum section, switch metrics section, per-project momentum chart | Streak badge, heatmap, daily focus, per-task breakdown |
-| **R-15** | Simplify Projects UI analytics | Project momentum chart on project detail (if not removed in R-11) | — |
-
-**Wave 5 outcome:** Analytics matches DOMAIN.md §7.2.
-
----
-
-## Wave 6: Schema Cleanup and Polish
-
-**Goal:** Drop deprecated schema, update docs, verify V1 upgrade path.
-
-| Slice | Scope | Acceptance |
-|---|---|---|
-| **R-16** | Schema cleanup migration 011 | Drop `Milestone`, `ContextSnapshot`, `TaskSwitchEvent` tables; drop `Task.MilestoneId`, task context columns; validation passes |
-| **R-17** | Remove dead code | No references to removed types; `AppServices` wiring cleaned; all tests pass |
-| **R-18** | Update README + V2Welcome | Docs describe Personal Execution Workspace, not project management |
-| **R-19** | Migration validation | Test upgrade from V1 DB → current; test upgrade from draft V2 (001–007) → aligned schema; verify session data intact |
-
-**Wave 6 outcome:** Production-ready aligned V2.
-
----
-
-## Wave Summary
-
-| Wave | Slices | User-visible outcome | Risk |
-|---|---|---|---|
-| 0 | R-00 | None (planning) | None |
-| 1 | R-01, R-02, R-02b | Correct task states, single Running, Quick Capture | Medium — status migration |
-| 2 | R-03, R-04, R-05 | Features disappear (milestones, snapshots, queue) | Low — removal |
-| 3 | R-06, R-07 | Project `ContextText` editing and display | Low — simple model |
-| 4 | R-08–R-12 | Execution workspace workflow + task switching | **High** — session integration |
-| 5 | R-13–R-15 | Simpler analytics | Low |
-| 6 | R-16–R-19 | Clean schema, updated docs | Medium — data migration |
-
----
-
-## Critical Path
-
-```
-R-01 → R-02 → R-02b → R-04 → R-06 → R-08 → R-09 → R-16 → R-19
-              ↓
-             R-03 → R-05
-```
-
-Task lifecycle (R-01), Quick Capture (R-02/R-02b), and execution alignment (R-08) are the highest-risk integration points. Project `ContextText` (R-06) is low complexity once task context is removed (R-04).
-
----
-
-## Recommended First Sprint
-
-**R-01 + R-02 + R-03** (can parallelize R-03 after R-01 starts)
-
-1. **R-01** — New task lifecycle + single Running task + switching behavior (establishes domain authority)
-2. **R-02** — `CaptureToInbox` API + Inbox defaults (first-class capture backend)
-3. **R-03** — Remove milestones (eliminates biggest project-management artifact)
-
-Follow with **R-02b** (Quick Capture UX) and **R-05** (remove queue/switch metrics) in the next sprint.
-
----
-
-# 10. Risks and Trade-offs
-
-## 10.1 Risk matrix
+## Risk Matrix
 
 | Risk | Severity | Likelihood | Mitigation |
 |---|---|---|---|
-| **Session regression** during R-08 execution alignment | High | Medium | Keep `SessionService` internals unchanged; only change orchestration in `WorkExecutionService`; run full `SessionServiceTests` every slice |
-| **Status migration data loss** (R-01 / M008) | High | Low | Explicit mapping table; pre-migration backup; validation: no task left with invalid status; at most one Running |
-| **Context data loss** on task→`ContextText` migration (R-06) | Medium | Medium | Best-effort concatenation from most recent task; backup before migration; user edits post-upgrade |
-| **Quick Capture hotkey conflicts** | Low | Medium | Configurable hotkey in Settings; default avoids common IDE shortcuts |
-| **Task switching confusion** (Ready vs Waiting) | Medium | Medium | Default to Ready; explicit "mark waiting" action; clear status badges |
-| **Removing features users may have adopted** | Medium | Medium | Draft V2 may not be widely deployed; changelog notes removals; backup protects snapshot/milestone data in DB file |
-| **Parallel paused sessions vs single Running task** | Medium | High | R-08 defines behavior: switching tasks pauses prior session; consider auto-completing stale paused sessions in R-19 |
-| **Large deletion diff** (R-03–R-05) | Low | High | Delete in dedicated slices; compile after each removal; avoid mixing with new features |
-| **UI scope creep** during realignment | Medium | Medium | DOMAIN.md §11.8 guardrails; no new features until alignment complete |
-| **Test suite churn** | Low | High | Expected; rewrite tests per slice, don't maintain tests for removed features |
-| **Enum integer remap breaks existing DBs** | High | Medium | Migration 008 remaps in SQL; never reuse old integer values for different meanings without migration |
+| Work Tree UI regression during Slice 5 | High | Medium | Temporary dual-nav; incremental migration from FocusView |
+| Session regression during Slice 9 | High | Medium | Keep `SessionService` unchanged; test `WorkExecutionService` every slice |
+| WPF drag-drop complexity (Slice 6) | Medium | High | Prototype DnD early; fallback to context menu assign |
+| Conversion data loss (context/deadline) | Medium | Medium | User confirmation dialogs; copy to Notes |
+| Estimate migration (Slice 2) | Low | Low | Nullable column; no backfill required |
+| User habit disruption (Slice 11) | Medium | Medium | Changelog; compact overlay preserves timer workflow |
 
-## 10.2 Trade-offs
+## Trade-offs
 
 | Decision | Trade-off | Why accepted |
 |---|---|---|
-| Delete milestone/snapshot data | Irreversible without backup | DOMAIN.md explicitly removes these concepts; backup preserves raw DB |
-| Aggregate task context → `ContextText` | Imperfect merge into single text field | Better than losing all context; simpler than structured fields; user edits afterward |
-| Phase removal before adding `ContextText` | Temporary loss of context UI | Prevents building on wrong model; shortest path to correct architecture |
-| Session engine retained but demoted | Some legacy session patterns remain initially | Option B: retain proven engine, simplify incrementally in R-08/R-19 |
-| No resume queue | Less guided "what's next" | DOMAIN.md: user picks from Ready/Inbox/Search/Quick Capture — simpler, less PM-like |
-| Default switch → Ready, not Waiting | User must explicitly mark blocks | Avoids falsely marking interrupted work as blocked; matches decision #4 |
+| Option A hierarchy (no nested projects) | Cannot model sub-projects | ADR rollup formula is flat; simpler V2 |
+| Derived rollup (not stored) | Recalculated on each tree refresh | ADR: no manual project effort; always consistent |
+| Context → Notes on Project→Task conversion | Imperfect context preservation | ADR: context is project-only |
+| Retain separate Task/Project tables | Not a single polymorphic table | Pragmatic; conceptual WorkItem union in services |
+| Demote FocusView | Loses familiar entry point | ADR: Work Tree is primary; Running Task Bar retains execution |
 
-## 10.3 What we are NOT doing
+## What We Are NOT Doing
 
+- Nested projects (Option B hierarchy)
+- Sprint management, milestones, kanban, WIP limits
+- Context snapshots, resume queue, project momentum
+- Multiple simultaneous Running tasks
+- Manual project effort entry
+- Task-level deadlines or context
 - Rebuilding the session engine
-- Adding subtasks, milestones, goals, or coaching "because they were planned before"
-- Migrating context snapshots to project context history (no history in V2)
-- Supporting multiple Running tasks "for power users"
-- Building kanban boards, Gantt charts, or WIP limits
-- Automatic context capture "temporarily until project context is ready"
 
-## 10.4 Success validation (DOMAIN.md §10)
+---
 
-| # | Success criterion | Validating slices |
+# Success Validation
+
+| # | Criterion | Validating Slices |
 |---|---|---|
-| 1 | Capture a task in seconds without project — while Running | R-02, R-02b |
-| 2 | Organize tasks with optional project grouping | R-01, R-03, R-10, R-11 |
-| 3 | Execute exactly one task at a time | R-01, R-08, R-09 |
-| 4 | Switch tasks without losing project context | R-06, R-07, R-08 |
-| 5 | Edit project context independent of task ops | R-06 |
-| 6 | Resume project work via `ContextText` | R-06, R-07 |
-| 7 | Time tracking as secondary benefit | R-08 (session follows task) |
-| 8 | Simple personal analytics | R-13, R-14 |
+| 1 | Capture task instantly at root without disturbing Running task | 10 |
+| 2 | Organize work in hierarchical tree via drag-drop | 5, 6 |
+| 3 | Convert Task↔Project per ADR rules | 3, 7 |
+| 4 | Execute exactly one task at a time | 9 |
+| 5 | Project context accessible without navigation steps | 7 |
+| 6 | Deadline and effort visible in normal workflow | 7, 8 |
+| 7 | Optional task estimates with project rollup | 2, 8 |
+| 8 | Time tracking as secondary benefit in Running Task Bar | 9 |
+
+---
+
+# Final Verdict
+
+```text
+GO WITH ARTIFACT UPDATES
+```
+
+**Rationale:**
+
+1. ADR-0007 is accepted and authoritative — direction is clear.
+2. Backend foundation (lifecycle, context, cleanup) is largely complete.
+3. Artifacts and nav still describe Focus Workspace — Slice 1 must precede or parallel UI work.
+4. No architectural blockers for Option A hierarchy and derived rollup.
+5. Highest risk is Slice 5 (new primary UI) and Slice 9 (Running Task Bar migration).
+
+## Recommended First Sprint
+
+**Slice 1 + Slice 2 + Slice 5 (skeleton)**
+
+1. Update artifacts so all agents reference Work Tree Workspace.
+2. Add `EffortService`, estimate column, tree queries.
+3. Ship Work Tree shell as default with read-only tree + placeholder panels.
 
 ---
 
@@ -748,60 +860,13 @@ Follow with **R-02b** (Quick Capture UX) and **R-05** (remove queue/switch metri
 
 | Document | Role |
 |---|---|
-| [DOMAIN.md](./DOMAIN.md) | Product domain specification (**source of truth**) |
-| [README.md](./README.md) | User-facing documentation (update in R-18) |
-| **IMPLEMENTATION_PLAN.md** (this file) | Realignment implementation plan |
+| [ADR-0007](./ADR-0007-worktree-workspace-n-unified-workitem-model.md) | **Source of truth** for workspace/UI/model |
+| [DOMAIN.md](./DOMAIN.md) | Product domain (subordinate to ADR-0007 for conflicts) |
+| [README.md](./README.md) | User-facing docs (update in Slice 1/11) |
+| ARCHITECTURE.md | To be created in Slice 1 |
+| ROADMAP.md | To be created in Slice 1 |
+| [V2-UI-IMPLEMENTATION-PLAN.md](./V2-UI-IMPLEMENTATION-PLAN.md) | **Superseded** by this plan |
 
 ---
 
-## Appendix A: File Impact Map
-
-Quick reference for agents implementing slices.
-
-### Delete (Wave 2)
-
-```
-Models/Milestone.cs, MilestoneProgress.cs
-Models/ContextSnapshot.cs, WorkingContext.cs
-Models/ResumeQueueEntry.cs, TaskSwitchEvent.cs
-Services/MilestoneService.cs, ContextSnapshotService.cs, ResumeQueueService.cs
-Persistence/IMilestoneStore.cs, MilestoneStore.cs, InMemoryMilestoneStore.cs
-Persistence/IContextSnapshotStore.cs, ContextSnapshotStore.cs, InMemoryContextSnapshotStore.cs
-Persistence/ITaskSwitchEventStore.cs, TaskSwitchEventStore.cs, InMemoryTaskSwitchEventStore.cs
-Persistence/Migrations/Migration004_AddMilestoneTable.cs  (superseded by drop migration)
-Persistence/Migrations/Migration005_AddContextSnapshotTable.cs
-Persistence/Migrations/Migration007_AddTaskSwitchEventTable.cs
-ViewModels/MilestoneListItemViewModel.cs, ContextSnapshotItemViewModel.cs
-ViewModels/ResumeQueueItemViewModel.cs, ContextCaptureViewModel.cs
-ViewModels/ProjectMomentumViewModels.cs
-Views/ContextCaptureDialog.xaml(.cs)
-tests: MilestoneServiceTests, ContextSnapshotServiceTests,
-       ResumeQueueServiceTests, ContextCaptureViewModelTests
-```
-
-### Modify (Waves 1–5)
-
-```
-Models/TaskStatus.cs, TaskStatusRules.cs, WorkTask.cs
-Models/Project.cs (+ ContextText on Project, not separate entity)
-Services/TaskService.cs, ProjectService.cs, WorkExecutionService.cs
-Services/SessionService.cs (remove switch event recording)
-Services/AnalyticsService.cs, AppServices.cs
-ViewModels/FocusViewModel.cs, TasksViewModel.cs, ProjectsViewModel.cs
-ViewModels/AnalyticsViewModel.cs, GlobalSearchViewModel.cs, ShellViewModel.cs
-Views/FocusView.xaml, TasksView.xaml, ProjectsView.xaml, AnalyticsView.xaml
-Persistence/TaskStore.cs, ProjectStore.cs, ITaskStore.cs, IProjectStore.cs
-```
-
-### Add (Wave 3)
-
-```
-Persistence/Migrations/Migration008_TaskLifecycleRealignment.cs
-Persistence/Migrations/Migration009_AddProjectContextText.cs
-Persistence/Migrations/Migration010_DropMilestoneAndTaskContext.cs
-Persistence/Migrations/Migration011_DropSnapshotAndSwitchEvents.cs
-```
-
----
-
-*End of Implementation Plan v2.1*
+*End of Implementation Plan v3.0*

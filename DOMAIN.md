@@ -1,8 +1,9 @@
 # DOMAIN.md
 
-Version: V2  
+Version: V2.1  
 Product: Jetset  
-Status: Approved for Implementation Planning
+Status: Approved for Implementation Planning  
+**Workspace/UI authority:** [ADR-0007](./ADR-0007-worktree-workspace-n-unified-workitem-model.md) supersedes this document for Work Tree layout, unified WorkItem model, conversion, estimates, rollup, and navigation.
 
 ---
 
@@ -68,13 +69,17 @@ All data is local to the user's machine.
 
 # 2. Design Principles
 
-## Task First
+## Work Tree First
 
-Task is the primary execution unit.
+The **Work Tree** is the primary interaction surface.
 
-Everything revolves around tasks. User activity centers on capturing, selecting, running, and completing tasks.
+User activity centers on capturing work, organizing it in a hierarchical tree, editing project context in an adjacent panel, and executing via a **Running Task Bar**. Tasks remain the execution unit; projects group tasks and hold shared context. The tree unifies both as **WorkItems** (see §3.4).
 
-Projects exist only to group related tasks and hold shared working context (`ContextText`).
+---
+
+## Task as Execution Unit
+
+Tasks are the unit of work execution — capture, start, pause, complete. Only one task may be Running at any time. Projects do not execute; they organize tasks and hold `ContextText`.
 
 ---
 
@@ -86,6 +91,7 @@ Users frequently receive interruptions and new work while already executing a ta
 - Must not disturb the currently Running task
 - Keyboard-first and globally accessible (e.g., hotkey)
 - No project setup required
+- Default placement: **root** (`ProjectId` null, `Status` Inbox)
 
 Quick Capture is distinct from starting work. Capturing records the task; starting executes it.
 
@@ -160,14 +166,25 @@ Context management and task execution are separate concerns.
 
 # 3. Domain Model
 
-The V2 domain is intentionally small. Three aggregates/entities form the core.
+The V2 domain is intentionally small. Two aggregate roots (Project, Task) plus a conceptual **WorkItem** union for tree presentation. Hierarchy is **Project → Task only** (no nested projects in V2).
+
+```
+WorkItem (conceptual)
+├── Project
+└── Task
+
+Work Tree (presentation)
+▼ Jetset V2                    [Project — rollup: 125h / 200h]
+  Authentication               [Task — 18h / 12h]
+  UI Design                    [Task — 40h]
+▶ SIS                          [Project — collapsed]
+SSL Investigation              [Task — standalone, 5h]
+```
 
 ```
 ┌─────────────────────────────────────────┐
 │              Project (optional)          │
-│  ┌───────────────────────────────────┐  │
-│  │         Project Context (ContextText) │  │
-│  └───────────────────────────────────┘  │
+│  Deadline, ContextText (rollup effort)   │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐     │
 │  │  Task   │ │  Task   │ │  Task   │ ... │
 │  └─────────┘ └─────────┘ └─────────┘     │
@@ -194,6 +211,7 @@ Group related tasks and hold shared working context that persists across task sw
 |---|---|---|---|
 | Id | Identifier | Yes | Stable identity |
 | Name | String | Yes | Human-readable label |
+| Deadline | Date | No | Project-only; visible in workflow (Context Panel) |
 | CreatedAt | Timestamp | Yes | Audit |
 | UpdatedAt | Timestamp | Yes | Last modification |
 
@@ -224,6 +242,8 @@ Context is a single editable text field — not a structured document. The purpo
 7. Context is **not** automatically captured or versioned on task lifecycle events.
 8. Context history is **out of scope** for V2. Do not model snapshots, versions, or audit trails.
 9. Standalone tasks (no project) have no project context. Resumption for standalone tasks relies on task title and status only.
+10. **Deadline** belongs exclusively to projects. Tasks do not have deadlines.
+11. **Effort rollup** (spent and estimate) is derived from child tasks — not manually entered on the project (see §3.6).
 
 ---
 
@@ -243,7 +263,8 @@ Represent a single unit of work the user can capture, organize, and execute.
 | Title | String | Yes | Short description of the work |
 | Status | TaskStatus | Yes | Lifecycle state (see §4) |
 | Origin | TaskOrigin | Yes | Planned or Unplanned |
-| ProjectId | Identifier | No | Null when standalone |
+| ProjectId | Identifier | No | Null when standalone (root in Work Tree) |
+| EstimateMinutes | Integer | No | Optional time estimate; null when unset |
 | CreatedAt | Timestamp | Yes | When captured |
 | CompletedAt | Timestamp | No | Set when status becomes Done |
 
@@ -265,6 +286,9 @@ Origin exists for **visibility only**. It must not introduce workflow complexity
 3. Only one task may be in `Running` status globally (see §4.2).
 4. A task in `Done` or `Cancelled` status is terminal for active execution (see §4.3).
 5. `CompletedAt` is set when status transitions to `Done`; cleared if reopened (if reopening is supported).
+6. **Estimate** is optional. Tasks without an estimate contribute to project spent rollup but not estimate rollup.
+7. **Actual spent time** is derived from work sessions (`ActiveDuration` sum), not stored as a separate task field.
+8. A task in `Running` status cannot be converted to a project.
 
 ---
 
@@ -297,6 +321,77 @@ Additional session fields (countdown duration, notes, intervals) may follow the 
 3. Starting a task should start or resume a work session on that task (implementation detail; the invariant is temporal alignment).
 4. Stopping or switching tasks should end or pause the active session on the previous task.
 5. Time tracking supports execution; it does not drive task lifecycle or context management.
+
+---
+
+## 3.4 WorkItem (Conceptual)
+
+**Not a persisted entity.** WorkItem is the conceptual union of Task and Project used for Work Tree presentation and conversion.
+
+| Kind | Maps to | In tree |
+|---|---|---|
+| Task | `WorkTask` | Root (standalone) or child under a project |
+| Project | `Project` | Root only (Option A — no nested projects) |
+
+Both kinds share: stable `Id`, display name (`Title` / `Name`), and tree placement. Services expose tree queries (`ListRootWorkItems`, `GetChildren`) without merging persistence tables.
+
+**UI behaviors (not domain state):**
+
+- Expand/collapse per project — persisted in UI layer only (ADR Decision 6)
+- Drag-and-drop — task onto project (assign `ProjectId`); task to root (clear `ProjectId`)
+- No project-to-project drag in V2
+
+---
+
+## 3.5 Task ↔ Project Conversion
+
+Users may convert between Task and Project when constraints allow.
+
+### Task → Project
+
+1. Load task; reject if `Running`.
+2. Create `Project` with `Name = task.Title`.
+3. Delete original task. User adds child tasks manually after conversion.
+4. Conversion does not auto-split the title into subtasks.
+
+Example: task `Implement Jetset V2` becomes project `Jetset V2`; user then adds `Authentication`, `UI Design`, etc.
+
+### Project → Task
+
+**Constraint:** `Project.Children.Count == 0` (no tasks with `ProjectId == projectId`).
+
+1. Verify zero child tasks.
+2. Create `WorkTask` with `Title = project.Name`, `Status = Ready` (or Inbox).
+3. `ContextText` may be copied to task `Notes` with user confirmation (context cannot remain on task per BR-3).
+4. Delete project; user is warned about deadline loss.
+5. Return new task.
+
+A Running task cannot be converted. A project with children cannot be converted until children are removed or reassigned.
+
+---
+
+## 3.6 Effort Rollup
+
+Effort is derived, not manually entered on projects.
+
+### Task effort
+
+| Metric | Source |
+|---|---|
+| Spent | `Sum(WorkSession.ActiveDuration)` for the task |
+| Estimate | `EstimateMinutes` on task (optional) |
+
+### Project rollup
+
+```text
+ProjectSpent     = Sum(ChildTaskSpent)
+ProjectEstimate  = Sum(ChildTaskEstimate)   // only tasks with estimates
+```
+
+- Rollup is calculated on read — not stored on `Project`.
+- Done and cancelled child tasks still contribute spent.
+- Tasks without estimates contribute to spent sum but not estimate sum.
+- Standalone tasks show spent in the tree; no rollup applies.
 
 ---
 
@@ -404,10 +499,10 @@ Reopening a Done or Cancelled task (transition back to Ready or Inbox) is option
 
 Quick Capture is a **first-class capability**. Users frequently receive interruptions and new work while already executing another task. The system must let them record new work immediately without disturbing the Running task.
 
-1. User enters a task title (keyboard-first, global hotkey, or one-click Inbox capture).
-2. System creates a task with status `Inbox`.
+1. User enters a task title (keyboard-first, global hotkey, or capture input in Work Tree).
+2. System creates a task with status `Inbox` and `ProjectId` null (root placement).
 3. The currently Running task (if any) **remains Running**. Quick capture does not switch execution.
-4. Project assignment is optional and may be skipped.
+4. Project assignment is optional and may be skipped or done later via drag-drop.
 5. Origin defaults to `Unplanned`.
 
 The user may optionally start the captured task immediately (transitions to `Running` and triggers task switching rules).
@@ -420,16 +515,18 @@ The user may optionally start the captured task immediately (transitions to `Run
 
 **Goal:** Move captured work into an actionable state.
 
-1. User reviews Inbox tasks.
+1. User reviews Inbox tasks in the Work Tree.
 2. User may:
    - Move task to `Ready`
-   - Assign or reassign to a project
-   - Detach from a project
+   - Assign or reassign to a project (drag-drop onto project, or detach to root)
+   - Convert task to project (context menu)
    - Set origin to `Planned` or `Unplanned`
+   - Set optional task estimate
    - Cancel irrelevant tasks
 3. User may create a project (optional) and assign related tasks.
+4. User may convert an empty project back to a task.
 
-**Outcome:** Tasks are organized without mandatory project hierarchy.
+**Outcome:** Tasks are organized in the tree without mandatory project hierarchy.
 
 ---
 
@@ -526,8 +623,11 @@ This process is independent of task lifecycle. It may happen before, during, or 
 | BR-8 | Work sessions belong to tasks, not projects | Domain |
 | BR-9 | Work sessions are active only while their task is Running | Invariant |
 | BR-10 | Deleting a project should detach tasks, not cascade-delete them | Policy |
-
----
+| BR-12 | Deadline belongs to Project only; visible in normal workflow | Domain |
+| BR-13 | Task estimate is optional; project estimate is derived rollup | Domain |
+| BR-14 | Project spent/estimate rollup is derived from child tasks, not stored | Domain |
+| BR-15 | Task→Project conversion rejected when task is Running | Domain |
+| BR-16 | Project→Task conversion rejected when project has child tasks | Domain |
 
 # 7. Supporting Capabilities
 
@@ -603,9 +703,14 @@ The following concepts from earlier drafts or V1 planning are **removed** from V
 | Productivity Coaching | Out of scope. |
 | WIP Health | Out of scope. |
 | AI Assistant | Out of scope. |
-| Deadline (as domain entity) | Optional project metadata at most; not a planning driver. |
+| Manual project effort entry | Project effort is derived rollup only (ADR Decision 10). |
+| Task-level deadlines | Deadline is project-only (ADR Decision 11). |
+| Nested projects | V2 hierarchy is Project → Task only (Option A). |
 | Active / Blocked (old statuses) | Replaced by Inbox / Ready / Running / Waiting / Done / Cancelled. |
 | Parallel active tasks | Replaced by single Running task; multiple tasks may be Waiting or Ready. |
+| Focus Workspace as primary UI | Replaced by Work Tree Workspace (ADR Decision 14). |
+
+**Deadline (clarification):** Deadline is optional project metadata. It is **workflow-visible** in the Context Panel — not a sprint/planning driver, but users should see it without extra navigation.
 
 ---
 
@@ -632,14 +737,16 @@ These may be considered in future versions.
 
 Jetset V2 is successful when a user can:
 
-1. Capture a task in seconds without creating a project — including while another task is Running.
-2. Organize tasks with optional project grouping.
-3. Execute exactly one task at a time with confidence the system enforces focus.
-4. Switch tasks without losing project-level context.
-5. Edit project context at any time, independent of task operations.
-6. Resume project work by reading project context, not reconstructing it from task history.
-7. Track focused work time as a secondary benefit, not a primary workflow.
-8. Glance at simple personal analytics without management-style reporting.
+1. Capture a task in seconds at tree root without creating a project — including while another task is Running.
+2. Organize tasks in a hierarchical Work Tree with optional project grouping and drag-drop.
+3. Convert tasks to projects and empty projects back to tasks.
+4. Execute exactly one task at a time with confidence the system enforces focus.
+5. Switch tasks without losing project-level context.
+6. Edit project context, deadline, and view effort rollup in the Context Panel without extra navigation.
+7. Optionally estimate tasks and see spent/estimate in the tree and panel.
+8. Resume project work by reading project context, not reconstructing it from task history.
+9. Track focused work time via the Running Task Bar as a secondary benefit.
+10. Glance at simple personal analytics without management-style reporting.
 
 ---
 
@@ -670,8 +777,8 @@ Tasks are their own aggregate roots, not entities nested inside Project. `Projec
 
 - **Embed context on Project:** `ContextText` + `ContextUpdatedAt` columns on `Project` table. No separate `ProjectContext` table or structured sub-fields.
 - **No automatic context writes** on pause, switch, or complete events. Remove any V1/V2-draft hooks that prompt for context on task lifecycle transitions.
-- **UI:** Project detail view has an always-editable text area for `ContextText`. Task detail view does **not** have context fields.
-- **Standalone tasks:** No context panel. Resumption relies on title, status, and optional task notes.
+- **UI:** Context Panel has an always-editable text area for `ContextText` when a project is resolved (selected project or owning project of selected task). Task detail does **not** have context fields.
+- **Standalone tasks:** Context Panel hidden or minimal. Resumption relies on title, status, and optional task notes.
 - **Do not build** context history, structured context fields, diffing, freshness scoring, or reload prompts.
 
 ## 11.4 Simplified Schema (Expected)
@@ -680,12 +787,13 @@ Core tables:
 
 ```
 Project
-  Id, Name, ContextText, ContextUpdatedAt,
+  Id, Name, Deadline, ContextText, ContextUpdatedAt,
   CreatedAt, UpdatedAt
 
 Task
   Id, Title, Status, Origin, ProjectId (nullable FK),
-  CreatedAt, CompletedAt
+  EstimateMinutes (nullable), Notes (nullable),
+  CreatedAt, CompletedAt, UpdatedAt
 
 WorkSession
   Id, TaskId (FK), Mode, StartedAt, FinishedAt,
@@ -696,15 +804,35 @@ No tables for: Milestone, Subtask, ContextSnapshot, ResumeQueue, Goal, ContextHi
 
 ## 11.5 UI Structure (Expected)
 
+Primary layout per ADR Decision 14:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ [Work Tree]  [Settings]  [Search…]                           │
+├────────────────────────────┬─────────────────────────────────┤
+│  Work Tree                 │  Context Panel                  │
+│  [Quick Capture input]     │  Project name, deadline         │
+│  ▼ Project  spent/estimate │  Rollup spent/estimate          │
+│    Task     spent/estimate │  Editable ContextText           │
+├────────────────────────────┴─────────────────────────────────┤
+│ Running Task Bar — title, timer, Done / Waiting / Pause      │
+└──────────────────────────────────────────────────────────────┘
+```
+
 | Area | Purpose | Key Constraint |
 |---|---|---|
-| Capture / Inbox | Fast task entry; global hotkey | No project required; does not disturb Running task |
-| Tasks | List, filter, status transitions | One Running indicator globally |
-| Projects | Group view + context editor | Context is project-scoped |
-| Focus / Timer | Session control linked to Running task | Session follows single-active-task |
-| Analytics | Minimal personal metrics | No momentum/WIP/coaching views |
+| **Work Tree** | Primary workspace — capture, tree navigation, drag-drop, expand/collapse | Default startup view; root Inbox capture does not disturb Running task |
+| **Context Panel** | Project context, deadline, effort rollup | Resolved from selected project or owning project of selected task; hidden for standalone tasks |
+| **Running Task Bar** | Execution chrome for the single Running task | Timer + Done/Waiting/Pause; not the primary workspace |
+| **Settings** | Preferences, hotkeys, timer defaults | Secondary nav; links to Analytics and History |
+| **Analytics** | Minimal personal metrics | Secondary (from Settings); no momentum/WIP/coaching |
+| **Compact overlay** | Minimal Running Task Bar + timer | Optional mode toggle |
 
-Do not build: milestone boards, subtask trees, resume queue panel, goal trackers, Gantt charts, kanban with WIP limits.
+**Demoted from primary nav:** Focus-centric execution hub, separate Tasks/Projects as co-primary surfaces. Tree and Context Panel subsume list/detail workflows.
+
+**UI-only behaviors:** Tree expand/collapse state (persisted in `AppSetting` or `TreeStateStore`, not domain entities). Drag-drop membership (`Task.ProjectId`).
+
+Do not build: milestone boards, subtask trees, resume queue panel, goal trackers, Gantt charts, kanban with WIP limits, Focus Workspace as default entry.
 
 ## 11.6 Task Lifecycle Migration
 
@@ -732,9 +860,11 @@ Implementation agents must reject proposals that:
 6. Couple context updates to session or task lifecycle events
 7. Require project creation before task capture
 8. Model goals, habits, or coaching feedback loops
+9. Store project effort rollup or manual project estimates
+10. Add nested projects (sub-projects) in V2
 
-When in doubt, ask: "Does this help one person capture, focus on one task, and preserve project context?" If not, it is out of scope.
+When in doubt, ask: "Does this help one person capture, organize in a work tree, focus on one task, and preserve project context?" If not, it is out of scope.
 
 ---
 
-*End of DOMAIN.md V2*
+*End of DOMAIN.md V2.1*

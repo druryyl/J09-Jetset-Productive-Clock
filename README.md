@@ -1,8 +1,8 @@
 # Jetset
 
-A **Personal Execution Workspace** for Windows — capture tasks quickly, execute one at a time, preserve project context across switches, and track focused work time. Everything runs locally on your machine: no accounts, no cloud sync, no subscription.
+A **Personal Execution Workspace** for Windows — capture tasks quickly, organize work in a hierarchical tree, execute one task at a time via a Running Task Bar, and preserve project context in an adjacent panel. Everything runs locally on your machine: no accounts, no cloud sync, no subscription.
 
-Jetset is a personal productivity tool, not project management software. It helps you capture work in seconds, pick what to run next, keep project context in one place, and review how you actually spend focused time.
+Jetset is a personal productivity tool, not project management software. It helps you capture work in seconds, organize it in a Work Tree, convert tasks to projects when work grows, keep project context and deadlines visible, and review how you actually spend focused time.
 
 ## Table of contents
 
@@ -19,52 +19,58 @@ Jetset is a personal productivity tool, not project management software. It help
 
 ## Features
 
-Jetset is organized into four main areas: **Focus**, **Tasks**, **Projects**, and **Analytics**.
+Jetset V2 centers on the **Work Tree Workspace** — a split layout with tree navigation, Context Panel, and Running Task Bar. **Settings** and **Analytics** are secondary.
 
-### Focus — execute and track time
+### Work Tree — organize and navigate
 
-- Always-visible clock with 12/24-hour format and optional seconds
+- **Primary workspace** on startup — hierarchical tree of projects and tasks
+- **Quick Capture** at tree root to Inbox without disturbing your Running task (`Ctrl+Shift+C`)
+- Expand/collapse projects; state persists across sessions
+- **Drag-and-drop** — move tasks onto projects or back to root
+- **Task ↔ Project conversion** — grow a task into a project container, or collapse an empty project back to a task
+- Spent time and optional estimates shown on tree nodes (`18h / 12h` for tasks; rollup for projects)
+
+### Context Panel — project detail at a glance
+
+- Adjacent panel when a project is selected (or when a task-with-project is selected)
+- **Project context** — editable `ContextText`, independent of task operations
+- **Deadline** visible in normal workflow (project-only)
+- **Effort rollup** — derived spent and estimate sums from child tasks
+- Hidden or minimal for standalone tasks
+
+### Running Task Bar — execute one task
+
 - **One Running task at a time** — starting another task stops the previous one
-- **Quick Capture** to Inbox without disturbing your Running task (`Ctrl+Shift+C`)
-- Ready and Waiting task lists for fast switching from the Focus view
-- **Switch and mark waiting** when a blocked task needs to stay blocked
-- Project context displayed while a Running task belongs to a project
-- **Stopwatch** mode (active time only) and **countdown** mode (absolute end time, with overtime after zero)
-- Session states: idle, running, and paused
-- Today's session history and total productive duration on the Focus view
-- Optional session notes and history edits
-- Interrupted-session recovery after restart
-- Auto-pause on system idle, with optional auto-resume
-- Light and dark themes
-- Always-on-top, compact mode, and remembered window position and size
-- Minimize to system tray (closing the window hides it; use **Exit** from the tray to quit)
-- Optional start with Windows
-- Optional sound when a countdown completes
+- Timer with stopwatch and countdown modes; pause-aware active duration
+- **Done**, **Waiting**, and **Pause** controls on the bottom bar
+- **Switch and mark waiting** when a blocked task must stay blocked
+- Compact overlay mode for minimal timer chrome
 
-### Tasks — capture and organize
+### Tasks — lifecycle (via tree or secondary views)
 
-- **Quick Capture** to Inbox — title only, no project required
 - Six-state lifecycle: Inbox, Ready, Running, Waiting, Done, Cancelled
-- Planned vs unplanned origin badges
-- Optional project assignment; tasks can also stand alone
-- Status filters for Inbox, Ready, Running, Waiting, Done, and Cancelled
-- Start work or switch tasks directly from the task list
-- Optional task notes
+- Planned vs unplanned origin
+- Optional project assignment; tasks can stand alone at tree root
+- Optional **task estimate** (minutes); no task-level deadline or context
 - Global search across task titles and project context
 
-### Projects — group work and hold context
-
-- Optional project grouping for related tasks
-- **Project context** — a single free-form `ContextText` field edited independently of tasks and sessions
-- Task list per project with start/resume actions
-- Optional deadline metadata (not a planning driver)
-
-### Analytics — personal awareness
+### Analytics — personal awareness (secondary)
 
 - Daily focus time summary for a selected date
 - Per-task focus time breakdown
 - Activity heatmap (12-week view)
 - Current and longest productive streaks
+- Reachable from Settings
+
+### Application chrome
+
+- Light and dark themes
+- Always-on-top, compact mode, remembered window position and size
+- Minimize to system tray (closing the window hides it; use **Exit** from the tray to quit)
+- Optional start with Windows
+- Interrupted-session recovery after restart
+- Auto-pause on system idle, with optional auto-resume
+- Optional sound when a countdown completes
 
 ## Prerequisites
 
@@ -93,22 +99,23 @@ dotnet test
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+Shift+C` | Focus Quick Capture (capture to Inbox without switching tasks) |
-| `Ctrl+N` | Start work on the selected task |
+| `Ctrl+Shift+C` | Quick Capture to Inbox at tree root (does not switch tasks) |
+| `Ctrl+N` | Start work (opens compact overlay task picker) |
 | `Ctrl+P` | Pause or resume the active session |
-| `Ctrl+Enter` | Finish the active session |
-| `Ctrl+M` | Toggle compact mode |
+| `Ctrl+Enter` | Finish the active session (Running Task Bar or compact overlay) |
+| `Ctrl+M` | Toggle compact overlay |
 | `Ctrl+H` | Show or hide the main window |
 
 Shortcuts are also listed in **Settings**.
 
 ### Typical workflow
 
-1. **Capture** — press `Ctrl+Shift+C` or use Quick Capture on Focus/Tasks to add items to Inbox without interrupting your Running task.
-2. **Organize** — move tasks from Inbox to Ready, assign optional projects, and edit project context on the Projects view.
-3. **Execute** — open **Focus**, start one task, and work with the stopwatch or countdown timer. Pause (`Ctrl+P`) when you step away.
-4. **Switch** — pick the next task from Ready, or use **Switch and mark waiting** when the previous task is blocked.
-5. **Review** — check focus time, heatmap, and streaks in **Analytics**.
+1. **Capture** — type in Quick Capture or press `Ctrl+Shift+C` to add items to Inbox at tree root without interrupting your Running task.
+2. **Organize** — drag tasks onto projects, expand/collapse the tree, convert tasks to projects when work grows, set optional estimates.
+3. **Context** — select a project (or a task under a project) to edit context, deadline, and view effort rollup in the Context Panel.
+4. **Execute** — double-click or start a task; use the **Running Task Bar** for timer, Done, Waiting, and Pause.
+5. **Switch** — start another task (prior Running task returns to Ready by default), or use **Switch and mark waiting** when blocked.
+6. **Review** — check focus time, heatmap, and streaks in **Analytics** (from Settings).
 
 ## Data and privacy
 
@@ -123,6 +130,8 @@ Before schema upgrades, Jetset creates a timestamped backup alongside the databa
 ## Upgrading from V1
 
 Existing Jetset databases upgrade automatically on first launch after installing V2. Historical sessions are linked to tasks by task name. Task statuses are remapped to the new lifecycle (for example, blocked tasks become Waiting). A welcome dialog introduces V2 navigation and keyboard shortcuts on first run.
+
+**Note:** Primary navigation is **Work Tree** and **Settings**. Legacy Focus, Tasks, and Projects list views are no longer in the main nav — use the tree, Context Panel, and Running Task Bar instead. Press **Ctrl+M** for the compact timer overlay.
 
 ## Development
 
@@ -163,14 +172,20 @@ Tests live in `tests/Jetset.Tests/` and cover session timing, idle auto-pause, t
 Jetset.sln
 src/Jetset.App/       WPF application (Views, ViewModels, Services, Persistence)
 tests/Jetset.Tests/   xUnit test project
-DOMAIN.md             Product domain specification (source of truth)
-IMPLEMENTATION_PLAN.md  Domain realignment plan v2.1 (supersedes prior roadmap)
+DOMAIN.md             Product domain specification
+ARCHITECTURE.md       Technical architecture (ADR-0007 aligned)
+ROADMAP.md            Slice-based delivery roadmap
+IMPLEMENTATION_PLAN.md  Implementation plan v3.0
+ADR-0007-worktree-workspace-n-unified-workitem-model.md  Workspace/UI authority
 ```
 
 ## Documentation
 
-- [DOMAIN.md](./DOMAIN.md) — **Source of truth** — product domain and design principles
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) — Domain realignment plan v2.1 (supersedes Implementation Plan v2.0 and invalid slices S-03–S-13, S-17, S-18)
+- [ADR-0007](./ADR-0007-worktree-workspace-n-unified-workitem-model.md) — **Source of truth** for Work Tree workspace, WorkItem model, conversion, estimates, rollup
+- [DOMAIN.md](./DOMAIN.md) — Product domain and design principles (subordinate to ADR-0007 for workspace/UI conflicts)
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — Technical architecture
+- [ROADMAP.md](./ROADMAP.md) — Slice-based delivery roadmap
+- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) — Implementation plan v3.0 (supersedes v2.1 and V2-UI-IMPLEMENTATION-PLAN.md)
 
 ## License
 

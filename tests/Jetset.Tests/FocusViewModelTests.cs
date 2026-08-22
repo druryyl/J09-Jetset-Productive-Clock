@@ -104,10 +104,10 @@ public class FocusViewModelTests : IDisposable
     }
 
     [Fact]
-    public void EditProjectContextRequested_NavigatesToSelectedProject()
+    public void EditProjectContextRequested_RaisesEventWithProjectId()
     {
         var services = CreateServices();
-        using var shell = new ShellViewModel(services);
+        using var focus = new FocusViewModel(services);
 
         var project = services.Projects.Create("Mobile app");
         services.Projects.UpdateContextText(project.Id, "Check auth flow.");
@@ -115,11 +115,11 @@ public class FocusViewModelTests : IDisposable
 
         services.WorkExecution.StartWork(task.Id);
 
-        shell.Focus.EditProjectContextCommand.Execute(null);
+        Guid? raisedId = null;
+        focus.EditProjectContextRequested += (_, id) => raisedId = id;
+        focus.EditProjectContextCommand.Execute(null);
 
-        Assert.Equal(ShellArea.Projects, shell.CurrentArea);
-        Assert.NotNull(shell.Projects.Selected);
-        Assert.Equal(project.Id, shell.Projects.Selected!.Id);
+        Assert.Equal(project.Id, raisedId);
     }
 
     [Fact]

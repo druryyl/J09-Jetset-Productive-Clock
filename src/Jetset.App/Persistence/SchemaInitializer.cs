@@ -16,7 +16,8 @@ public sealed class SchemaInitializer
         new Migration008_TaskLifecycleRealignment(),
         new Migration009_AddProjectContextText(),
         new Migration010_MigrateTaskContextToProject(),
-        new Migration011_SchemaCleanup()
+        new Migration011_SchemaCleanup(),
+        new Migration012_AddTaskEstimateMinutes()
     ];
 
     private readonly SqliteConnectionFactory _factory;

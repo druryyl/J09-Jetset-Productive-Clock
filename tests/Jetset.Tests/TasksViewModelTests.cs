@@ -134,22 +134,21 @@ public class TasksViewModelTests : IDisposable
     }
 
     [Fact]
-    public void ViewProjectContextRequested_NavigatesToProject()
+    public void ViewProjectContextRequested_RaisesEventWithProjectId()
     {
         var services = CreateServices();
-        using var shell = new ShellViewModel(services);
-        var vm = shell.Tasks;
+        var vm = new TasksViewModel(services);
 
         var project = services.Projects.Create("Docs");
         var task = services.Tasks.Create("Write guide", project.Id);
         vm.SetStatusFilterCommand.Execute(StatusFilterMode.All);
         vm.Selected = vm.Items.Single(i => i.Id == task.Id);
 
+        Guid? raisedId = null;
+        vm.ViewProjectContextRequested += (_, id) => raisedId = id;
         vm.ViewProjectContextCommand.Execute(null);
 
-        Assert.Equal(ShellArea.Projects, shell.CurrentArea);
-        Assert.NotNull(shell.Projects.Selected);
-        Assert.Equal(project.Id, shell.Projects.Selected!.Id);
+        Assert.Equal(project.Id, raisedId);
     }
 
     [Fact]

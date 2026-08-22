@@ -155,9 +155,28 @@ public sealed class TaskService
 
         var updated = CopyTask(
             existing,
-            projectId: projectId,
             updatedAt: _clock());
+        updated.ProjectId = projectId;
 
+        _store.Update(updated);
+        return updated;
+    }
+
+    public WorkTask DetachFromProject(Guid taskId) => AssignToProject(taskId, null);
+
+    public WorkTask UpdateEstimate(Guid taskId, int? estimateMinutes)
+    {
+        if (estimateMinutes is < 0)
+        {
+            throw new ArgumentException("Estimate cannot be negative.", nameof(estimateMinutes));
+        }
+
+        var existing = RequireTask(taskId);
+        var updated = CopyTask(
+            existing,
+            estimateMinutes: estimateMinutes,
+            clearEstimate: !estimateMinutes.HasValue,
+            updatedAt: _clock());
         _store.Update(updated);
         return updated;
     }
@@ -184,6 +203,7 @@ public sealed class TaskService
             title: trimmed,
             notes: NormalizeOptionalField(task.Notes),
             projectId: task.ProjectId,
+            estimateMinutes: task.EstimateMinutes,
             lastWorkedAt: task.LastWorkedAt,
             updatedAt: _clock());
 
@@ -336,6 +356,7 @@ public sealed class TaskService
             Status = newStatus,
             Origin = existing.Origin,
             Notes = existing.Notes,
+            EstimateMinutes = existing.EstimateMinutes,
             ProjectId = existing.ProjectId,
             CreatedAt = existing.CreatedAt,
             CompletedAt = completedAt,
@@ -360,6 +381,8 @@ public sealed class TaskService
         TaskStatus? status = null,
         TaskOrigin? origin = null,
         string? notes = null,
+        int? estimateMinutes = null,
+        bool clearEstimate = false,
         Guid? projectId = null,
         DateTimeOffset? createdAt = null,
         DateTimeOffset? completedAt = null,
@@ -372,6 +395,7 @@ public sealed class TaskService
             Status = status ?? source.Status,
             Origin = origin ?? source.Origin,
             Notes = notes ?? source.Notes,
+            EstimateMinutes = clearEstimate ? null : estimateMinutes ?? source.EstimateMinutes,
             ProjectId = projectId ?? source.ProjectId,
             CreatedAt = createdAt ?? source.CreatedAt,
             CompletedAt = completedAt ?? source.CompletedAt,

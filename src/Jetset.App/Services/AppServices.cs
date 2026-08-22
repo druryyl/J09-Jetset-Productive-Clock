@@ -27,9 +27,13 @@ public sealed class AppServices
         Projects = new ProjectService(ProjectStore, TaskStore, () => Clock.Now);
         WorkExecution = new WorkExecutionService(Sessions, Tasks);
         Analytics = new AnalyticsService(Sessions, Tasks, () => Clock.Now);
+        Effort = new EffortService(Sessions, TaskStore);
+        WorkTree = new WorkTreeService(TaskStore, ProjectStore);
+        WorkItemConversion = new WorkItemConversionService(Tasks, Projects);
         Notifications = new NotificationService();
         Startup = new StartupService();
         Settings = new SettingsService(SettingsStore, Startup);
+        TreeState = new TreeStateStore(ConnectionFactory);
         SystemIdle = new SystemIdleService();
         IdleAutoPause = new IdleAutoPauseController(Sessions, WorkExecution, SystemIdle, () => Settings.Settings);
         Tray = new TrayService(Notifications);
@@ -45,10 +49,14 @@ public sealed class AppServices
     public TaskService Tasks { get; }
     public WorkExecutionService WorkExecution { get; }
     public AnalyticsService Analytics { get; }
+    public EffortService Effort { get; }
+    public WorkTreeService WorkTree { get; }
+    public WorkItemConversionService WorkItemConversion { get; }
     public ProjectService Projects { get; }
     public NotificationService Notifications { get; }
     public StartupService Startup { get; }
     public SettingsService Settings { get; }
+    public ITreeStateStore TreeState { get; }
     public ISystemIdleService SystemIdle { get; }
     public IdleAutoPauseController IdleAutoPause { get; }
     public TrayService Tray { get; }

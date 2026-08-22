@@ -11,7 +11,7 @@ namespace Jetset.Tests;
 /// </summary>
 public class MigrationUpgradePathTests : IDisposable
 {
-    private const int CurrentSchemaVersion = 11;
+    private const int CurrentSchemaVersion = 12;
 
     private const int LegacyActive = 0;
     private const int LegacyBlocked = 1;
@@ -171,6 +171,25 @@ public class MigrationUpgradePathTests : IDisposable
     }
 
     [Fact]
+    public void GivenSchema11Database_WhenUpgradedToCurrent_ThenEstimateMinutesColumnExists()
+    {
+        var factory = CreateFactory();
+        SeedDraftV2DatabaseAtVersion7(factory);
+
+        RunMigrationsThroughVersion(factory, 11);
+        Assert.Equal(11, GetSchemaVersion(factory));
+        Assert.False(ColumnExists(factory, "Task", "EstimateMinutes"));
+
+        RunMigrations(factory);
+
+        Assert.Equal(CurrentSchemaVersion, GetSchemaVersion(factory));
+        Assert.True(ColumnExists(factory, "Task", "EstimateMinutes"));
+
+        var validation = new MigrationValidationService().Validate(factory);
+        Assert.True(validation.IsValid, string.Join(" ", validation.Errors));
+    }
+
+    [Fact]
     public void GivenDraftV2DatabaseAtVersion7_WhenUpgraded_ThenStatusesAndContextAreRemapped()
     {
         var factory = CreateFactory();
@@ -253,6 +272,28 @@ public class MigrationUpgradePathTests : IDisposable
     private static void RunMigrations(SqliteConnectionFactory factory)
     {
         new SchemaInitializer(factory).Initialize();
+    }
+
+    private static void RunMigrationsThroughVersion(SqliteConnectionFactory factory, int targetVersion)
+    {
+        var migrations = new IMigration[]
+        {
+            new Migration001_InitialSchema(),
+            new Migration002_AddTaskTable(),
+            new Migration003_AddProjectTable(),
+            new Migration004_AddMilestoneTable(),
+            new Migration005_AddContextSnapshotTable(),
+            new Migration006_AddWorkSessionTaskId(),
+            new Migration007_AddTaskSwitchEventTable(),
+            new Migration008_TaskLifecycleRealignment(),
+            new Migration009_AddProjectContextText(),
+            new Migration010_MigrateTaskContextToProject(),
+            new Migration011_SchemaCleanup(),
+            new Migration012_AddTaskEstimateMinutes()
+        };
+
+        var selected = migrations.Where(m => m.Version <= targetVersion).ToArray();
+        new MigrationRunner(factory, selected).RunPending();
     }
 
     private static void SeedLegacyV1Database(SqliteConnectionFactory factory)

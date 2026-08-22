@@ -1,0 +1,170 @@
+<UserControl x:Class="Jetset.App.Views.WorkTreeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:helpers="clr-namespace:Jetset.App.Helpers"
+             xmlns:vm="clr-namespace:Jetset.App.ViewModels"
+             xmlns:views="clr-namespace:Jetset.App.Views">
+  <UserControl.Resources>
+    <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+    <HierarchicalDataTemplate DataType="{x:Type vm:WorkTreeNodeViewModel}"
+                              ItemsSource="{Binding Children}">
+      <StackPanel Orientation="Horizontal">
+        <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis">
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsProject}" Value="True">
+                  <Setter Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsTask}" Value="True">
+                  <Setter Property="Cursor" Value="Hand" />
+                  <Setter Property="ToolTip" Value="Double-click to start" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+          <TextBlock.InputBindings>
+            <MouseBinding Gesture="LeftDoubleClick"
+                          Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=views:WorkTreeView}}"
+                          CommandParameter="{Binding}" />
+          </TextBlock.InputBindings>
+        </TextBlock>
+
+        <TextBlock Text="{Binding EffortDisplayText, StringFormat='  {0}'}"
+                   FontSize="11"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   Margin="8,0,0,0"
+                   VerticalAlignment="Center"
+                   Visibility="{Binding ShowEffort, Converter={StaticResource BoolToVis}}">
+          <TextBlock.InputBindings>
+            <MouseBinding Gesture="LeftDoubleClick"
+                          Command="{Binding DataContext.BeginEstimateEditCommand, RelativeSource={RelativeSource AncestorType=views:WorkTreeView}}"
+                          CommandParameter="{Binding}" />
+          </TextBlock.InputBindings>
+          <TextBlock.Style>
+            <Style TargetType="TextBlock">
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsTask}" Value="True">
+                  <Setter Property="Cursor" Value="Hand" />
+                  <Setter Property="ToolTip" Value="Double-click to edit estimate" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </TextBlock.Style>
+        </TextBlock>
+
+        <TextBox Text="{Binding EstimateInput, UpdateSourceTrigger=PropertyChanged}"
+                 Width="48"
+                 Margin="8,0,0,0"
+                 Padding="2,0"
+                 FontSize="11"
+                 VerticalAlignment="Center"
+                 Visibility="{Binding IsEditingEstimate, Converter={StaticResource BoolToVis}}"
+                 KeyDown="EstimateInput_OnKeyDown"
+                 LostFocus="EstimateInput_OnLostFocus" />
+
+        <TextBlock Text=" · running"
+                   FontSize="11"
+                   Foreground="{DynamicResource AccentBrush}"
+                   Margin="4,0,0,0"
+                   Visibility="{Binding IsRunning, Converter={StaticResource BoolToVis}}" />
+      </StackPanel>
+    </HierarchicalDataTemplate>
+  </UserControl.Resources>
+
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <Grid Grid.Row="0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" MinWidth="200" />
+        <ColumnDefinition Width="280" />
+      </Grid.ColumnDefinitions>
+
+      <Border Grid.Column="0"
+              Padding="16"
+              BorderBrush="{DynamicResource BorderBrush}"
+              BorderThickness="0,0,1,0">
+        <DockPanel>
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Button DockPanel.Dock="Right"
+                    Content="Refresh"
+                    Command="{Binding RefreshCommand}"
+                    Style="{DynamicResource SecondaryButton}" />
+            <TextBlock Text="Work Tree"
+                       FontSize="20"
+                       FontWeight="SemiBold"
+                       FontFamily="{DynamicResource DisplayFont}"
+                       VerticalAlignment="Center" />
+          </DockPanel>
+
+          <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <Button DockPanel.Dock="Right"
+                    Content="Capture"
+                    Command="{Binding QuickCaptureCommand}"
+                    Style="{DynamicResource PrimaryButton}"
+                    Margin="8,0,0,0" />
+            <TextBox x:Name="QuickCaptureTextBox"
+                     Text="{Binding QuickCaptureTitle, UpdateSourceTrigger=PropertyChanged}"
+                     Padding="6"
+                     VerticalAlignment="Center"
+                     KeyDown="QuickCaptureTextBox_OnKeyDown"
+                     ToolTip="Quick capture to Inbox at tree root — does not switch your running task (Ctrl+Shift+C)" />
+          </DockPanel>
+
+          <TextBlock DockPanel.Dock="Top"
+                     Text="Capture tasks at the root, drag onto projects, or press Ctrl+N to start work."
+                     TextWrapping="Wrap"
+                     HorizontalAlignment="Center"
+                     Foreground="{DynamicResource TextSecondaryBrush}"
+                     Margin="0,24,0,0"
+                     Visibility="{Binding HasItems, Converter={StaticResource BoolToVis}, ConverterParameter=Invert}" />
+
+          <TreeView x:Name="WorkTree"
+                    ItemsSource="{Binding RootNodes}"
+                    AllowDrop="True"
+                    SelectedItemChanged="TreeView_OnSelectedItemChanged"
+                    PreviewMouseLeftButtonDown="TreeView_PreviewMouseLeftButtonDown"
+                    PreviewMouseMove="TreeView_PreviewMouseMove"
+                    DragOver="TreeView_DragOver"
+                    Drop="TreeView_Drop"
+                    Background="Transparent"
+                    BorderThickness="0">
+            <TreeView.ItemContainerStyle>
+              <Style TargetType="TreeViewItem">
+                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                <Setter Property="AllowDrop" Value="True" />
+                <Setter Property="Padding" Value="2" />
+                <EventSetter Event="DragOver" Handler="TreeViewItem_DragOver" />
+                <EventSetter Event="Drop" Handler="TreeViewItem_Drop" />
+                <Setter Property="ContextMenu">
+                  <Setter.Value>
+                    <ContextMenu>
+                      <MenuItem Header="Start task"
+                                Command="{Binding DataContext.StartTaskCommand, RelativeSource={RelativeSource AncestorType=views:WorkTreeView}}"
+                                CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                Visibility="{Binding PlacementTarget.DataContext.IsTask, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}" />
+                      <MenuItem Header="Edit estimate"
+                                Command="{Binding DataContext.BeginEstimateEditCommand, RelativeSource={RelativeSource AncestorType=views:WorkTreeView}}"
+                                CommandParameter="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                                Visibility="{Binding PlacementTarget.DataContext.IsTask, RelativeSource={RelativeSource AncestorType=ContextMenu}, Converter={StaticResource BoolToVis}}" />
+                    </ContextMenu>
+                  </Setter.Value>
+                </Setter>
+              </Style>
+            </TreeView.ItemContainerStyle>
+          </TreeView>
+        </DockPanel>
+      </Border>
+
+      <views:ContextPanelView Grid.Column="1"
+                              DataContext="{Binding ContextPanel}" />
+    </Grid>
+
+    <views:RunningTaskBarView Grid.Row="1"
+                                DataContext="{Binding RunningTaskBar}" />
+  </Grid>
+</UserControl>

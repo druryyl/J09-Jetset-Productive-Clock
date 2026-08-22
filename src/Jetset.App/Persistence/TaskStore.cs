@@ -40,7 +40,7 @@ public sealed class TaskStore : ITaskStore
 
             """
 
-            SELECT Id, Title, Status, Origin, Notes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
+            SELECT Id, Title, Status, Origin, Notes, EstimateMinutes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
 
             FROM "Task"
 
@@ -72,7 +72,7 @@ public sealed class TaskStore : ITaskStore
 
             """
 
-            SELECT Id, Title, Status, Origin, Notes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
+            SELECT Id, Title, Status, Origin, Notes, EstimateMinutes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
 
             FROM "Task"
 
@@ -118,7 +118,7 @@ public sealed class TaskStore : ITaskStore
 
                 """
 
-                SELECT Id, Title, Status, Origin, Notes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
+                SELECT Id, Title, Status, Origin, Notes, EstimateMinutes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
 
                 FROM "Task"
 
@@ -138,7 +138,7 @@ public sealed class TaskStore : ITaskStore
 
                 """
 
-                SELECT Id, Title, Status, Origin, Notes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
+                SELECT Id, Title, Status, Origin, Notes, EstimateMinutes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
 
                 FROM "Task"
 
@@ -186,7 +186,7 @@ public sealed class TaskStore : ITaskStore
 
             """
 
-            SELECT t.Id, t.Title, t.Status, t.Origin, t.Notes, t.ProjectId, t.CreatedAt, t.CompletedAt, t.UpdatedAt, t.LastWorkedAt
+            SELECT t.Id, t.Title, t.Status, t.Origin, t.Notes, t.EstimateMinutes, t.ProjectId, t.CreatedAt, t.CompletedAt, t.UpdatedAt, t.LastWorkedAt
 
             FROM "Task" t
 
@@ -268,7 +268,7 @@ public sealed class TaskStore : ITaskStore
 
             $"""
 
-            SELECT Id, Title, Status, Origin, Notes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
+            SELECT Id, Title, Status, Origin, Notes, EstimateMinutes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
 
             FROM "Task"
 
@@ -368,13 +368,13 @@ public sealed class TaskStore : ITaskStore
 
             INSERT INTO "Task" (
 
-                Id, Title, Status, Origin, Notes,
+                Id, Title, Status, Origin, Notes, EstimateMinutes,
 
                 ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt)
 
             VALUES (
 
-                @id, @title, @status, @origin, @notes,
+                @id, @title, @status, @origin, @notes, @estimateMinutes,
 
                 @projectId, @createdAt, @completedAt, @updatedAt, @lastWorkedAt);
 
@@ -410,6 +410,8 @@ public sealed class TaskStore : ITaskStore
 
                 Notes = @notes,
 
+                EstimateMinutes = @estimateMinutes,
+
                 ProjectId = @projectId,
 
                 CompletedAt = @completedAt,
@@ -442,7 +444,7 @@ public sealed class TaskStore : ITaskStore
 
             """
 
-            SELECT Id, Title, Status, Origin, Notes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
+            SELECT Id, Title, Status, Origin, Notes, EstimateMinutes, ProjectId, CreatedAt, CompletedAt, UpdatedAt, LastWorkedAt
 
             FROM "Task"
 
@@ -518,6 +520,8 @@ public sealed class TaskStore : ITaskStore
 
         command.Parameters.AddWithValue("@notes", (object?)task.Notes ?? DBNull.Value);
 
+        command.Parameters.AddWithValue("@estimateMinutes", (object?)task.EstimateMinutes ?? DBNull.Value);
+
         command.Parameters.AddWithValue("@projectId", (object?)task.ProjectId?.ToString() ?? DBNull.Value);
 
         if (includeCreatedAt)
@@ -574,23 +578,25 @@ public sealed class TaskStore : ITaskStore
 
             Notes = reader.IsDBNull(4) ? null : reader.GetString(4),
 
-            ProjectId = reader.IsDBNull(5) ? null : Guid.Parse(reader.GetString(5)),
+            EstimateMinutes = reader.IsDBNull(5) ? null : reader.GetInt32(5),
 
-            CreatedAt = DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture),
+            ProjectId = reader.IsDBNull(6) ? null : Guid.Parse(reader.GetString(6)),
 
-            CompletedAt = reader.IsDBNull(7)
+            CreatedAt = DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture),
 
-                ? null
-
-                : DateTimeOffset.Parse(reader.GetString(7), CultureInfo.InvariantCulture),
-
-            UpdatedAt = DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture),
-
-            LastWorkedAt = reader.IsDBNull(9)
+            CompletedAt = reader.IsDBNull(8)
 
                 ? null
 
-                : DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture)
+                : DateTimeOffset.Parse(reader.GetString(8), CultureInfo.InvariantCulture),
+
+            UpdatedAt = DateTimeOffset.Parse(reader.GetString(9), CultureInfo.InvariantCulture),
+
+            LastWorkedAt = reader.IsDBNull(10)
+
+                ? null
+
+                : DateTimeOffset.Parse(reader.GetString(10), CultureInfo.InvariantCulture)
 
         };
 

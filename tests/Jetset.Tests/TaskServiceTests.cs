@@ -132,6 +132,49 @@ public class TaskServiceTests : IDisposable
     }
 
     [Fact]
+    public void UpdateEstimate_SetsAndClearsEstimateMinutes()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var (service, _, setNow) = CreateHarness(start);
+        var task = service.Create("Estimated");
+        setNow(start.AddMinutes(1));
+
+        var updated = service.UpdateEstimate(task.Id, 120);
+
+        Assert.Equal(120, updated.EstimateMinutes);
+        Assert.Equal(120, service.Get(task.Id)!.EstimateMinutes);
+
+        setNow(start.AddMinutes(2));
+        var cleared = service.UpdateEstimate(task.Id, null);
+
+        Assert.Null(cleared.EstimateMinutes);
+        Assert.Null(service.Get(task.Id)!.EstimateMinutes);
+    }
+
+    [Fact]
+    public void UpdateEstimate_RejectsNegativeEstimate()
+    {
+        var (service, _, _) = CreateHarness(new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero));
+        var task = service.Create("Task");
+
+        Assert.Throws<ArgumentException>(() => service.UpdateEstimate(task.Id, -1));
+    }
+
+    [Fact]
+    public void ChangeStatus_PreservesEstimateMinutes()
+    {
+        var (service, _, _) = CreateHarness(new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero));
+        var task = service.Create("Estimated");
+        service.UpdateEstimate(task.Id, 90);
+        service.ChangeStatus(task.Id, TaskStatus.Ready);
+
+        var waiting = service.ChangeStatus(task.Id, TaskStatus.Waiting);
+
+        Assert.Equal(90, waiting.EstimateMinutes);
+        Assert.Equal(90, service.Get(task.Id)!.EstimateMinutes);
+    }
+
+    [Fact]
     public void ChangeStatus_ReadyToWaiting_Succeeds()
     {
         var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
@@ -590,6 +633,29 @@ public class TaskServiceTests : IDisposable
     }
 
     [Fact]
+    public void DetachFromProject_ClearsProjectId()
+    {
+        var start = new DateTimeOffset(2026, 8, 22, 10, 0, 0, TimeSpan.Zero);
+        var store = new InMemoryTaskStore();
+        var projectStore = new InMemoryProjectStore(() => store.List());
+        var service = new TaskService(store, projectStore, () => start);
+        var project = new Project
+        {
+            Id = Guid.NewGuid(),
+            Name = "Jetset",
+            CreatedAt = start,
+            UpdatedAt = start
+        };
+        projectStore.Insert(project);
+
+        var task = service.Create("Review PR", project.Id);
+        var updated = service.DetachFromProject(task.Id);
+
+        Assert.Null(updated.ProjectId);
+        Assert.Null(service.Get(task.Id)!.ProjectId);
+    }
+
+    [Fact]
     public void TaskStore_PersistsAcrossStoreInstances()
     {
         var path = Path.Combine(_tempDir, $"{Guid.NewGuid():N}.db");
@@ -645,7 +711,10 @@ public class TaskServiceTests : IDisposable
             InsertLegacyTask(connection, cancelledId, "Cancelled task", 3, now);
         }
 
-        new MigrationRunner(factory, [new Migration008_TaskLifecycleRealignment()]).RunPending();
+        new MigrationRunner(factory, [
+            new Migration008_TaskLifecycleRealignment(),
+            new Migration012_AddTaskEstimateMinutes()
+        ]).RunPending();
 
         var store = new TaskStore(factory);
         Assert.Equal(TaskStatus.Ready, store.Get(Guid.Parse(activeId))!.Status);

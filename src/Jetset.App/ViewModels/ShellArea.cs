@@ -1,9 +1,7 @@
-namespace Jetset.App.ViewModels;
-
-public enum ShellArea
-{
-    Focus,
-    Tasks,
-    Projects,
-    Analytics
-}
+namespace Jetset.App.ViewModels;
+
+public enum ShellArea
+{
+    WorkTree,
+    Settings
+}

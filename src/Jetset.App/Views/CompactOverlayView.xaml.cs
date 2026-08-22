@@ -1,17 +1,16 @@
-using System.Windows;
 using Jetset.App.ViewModels;
 
 namespace Jetset.App.Views;
 
-public partial class FocusView : System.Windows.Controls.UserControl
+public partial class CompactOverlayView : System.Windows.Controls.UserControl
 {
-    public FocusView()
+    public CompactOverlayView()
     {
         InitializeComponent();
         DataContextChanged += OnDataContextChanged;
     }
 
-    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private void OnDataContextChanged(object sender, System.Windows.DependencyPropertyChangedEventArgs e)
     {
         if (e.OldValue is FocusViewModel oldVm)
         {
@@ -26,11 +25,7 @@ public partial class FocusView : System.Windows.Controls.UserControl
 
     private void OnQuickCaptureFocusRequested(object? sender, EventArgs e)
     {
-        var textBox = IsCompactQuickCaptureVisible() ? CompactQuickCaptureTextBox : QuickCaptureTextBox;
-        textBox.Focus();
-        textBox.SelectAll();
+        QuickCaptureTextBox.Focus();
+        QuickCaptureTextBox.SelectAll();
     }
-
-    private bool IsCompactQuickCaptureVisible() =>
-        DataContext is FocusViewModel vm && vm.IsCompact;
 }

@@ -33,6 +33,8 @@ public sealed class MigrationValidationService
 
         if (TableExists(connection, "Task"))
         {
+            var schemaVersion = GetSchemaVersion(connection);
+
             using (var command = connection.CreateCommand())
             {
                 command.CommandText =
@@ -77,6 +79,11 @@ public sealed class MigrationValidationService
                 {
                     errors.Add($"Required Task column '{column}' is missing.");
                 }
+            }
+
+            if (schemaVersion >= 12 && !ColumnExists(connection, "Task", "EstimateMinutes"))
+            {
+                errors.Add("Required Task column 'EstimateMinutes' is missing.");
             }
 
             using (var command = connection.CreateCommand())
@@ -159,6 +166,18 @@ public sealed class MigrationValidationService
             """;
         command.Parameters.AddWithValue("@name", tableName);
         return Convert.ToInt32(command.ExecuteScalar()) == 1;
+    }
+
+    private static int GetSchemaVersion(SqliteConnection connection)
+    {
+        if (!TableExists(connection, "SchemaVersion"))
+        {
+            return 0;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COALESCE(MAX(Version), 0) FROM SchemaVersion;";
+        return Convert.ToInt32(command.ExecuteScalar());
     }
 
     private static bool ColumnExists(SqliteConnection connection, string table, string column)

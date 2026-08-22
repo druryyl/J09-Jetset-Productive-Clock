@@ -12,6 +12,8 @@ public sealed class WorkTask
 
     public string? Notes { get; set; }
 
+    public int? EstimateMinutes { get; set; }
+
     public Guid? ProjectId { get; set; }
 
     public DateTimeOffset CreatedAt { get; init; }

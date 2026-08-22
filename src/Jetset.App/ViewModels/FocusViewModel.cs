@@ -47,11 +47,6 @@ public sealed class FocusViewModel : ObservableObject, IDisposable
 
         StartWorkCommand = new RelayCommand(() =>
         {
-            if (IsCompact)
-            {
-                ExitCompactMode();
-            }
-
             StartSession.RefreshTaskList();
             ShowStartPanel = true;
         }, () => !ShowStartPanel);
